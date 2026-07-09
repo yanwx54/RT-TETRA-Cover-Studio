@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from rt_tetra_cover_studio.engine import calculate_coverage
 from rt_tetra_cover_studio.io import calculation_result_to_dict, load_json
+from rt_tetra_cover_studio.paths import project_dir, resource_path
 from rt_tetra_cover_studio.report import export_pdf_report, export_word_report
 from rt_tetra_cover_studio.ui.chart_data import extract_chart_series
 from rt_tetra_cover_studio.ui.input_builder import (
@@ -45,9 +46,9 @@ from rt_tetra_cover_studio.ui.input_builder import (
 from rt_tetra_cover_studio.validation import validate_input
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[3]
-DEFAULT_CONFIG_PATH = PROJECT_DIR / "config" / "default_parameters.json"
-EXAMPLES_DIR = PROJECT_DIR / "examples"
+PROJECT_DIR = project_dir()
+DEFAULT_CONFIG_PATH = resource_path("config", "default_parameters.json")
+EXAMPLES_DIR = resource_path("examples")
 
 
 class MainWindow(QMainWindow):

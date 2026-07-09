@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from .common import build_curve_chart_images, project_info_rows
+from ..paths import resource_path
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[3]
-DEFAULT_TEMPLATE_PATH = PROJECT_DIR / "config" / "report_template.json"
+DEFAULT_TEMPLATE_PATH = resource_path("config", "report_template.json")
 
 
 def export_word_report(
