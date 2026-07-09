@@ -26,8 +26,9 @@ class PdfReportTest(unittest.TestCase):
 
         self.assertTrue(saved_path.exists())
         self.assertGreater(saved_path.stat().st_size, 0)
-        with saved_path.open("rb") as file:
-            self.assertEqual(file.read(4), b"%PDF")
+        content = saved_path.read_bytes()
+        self.assertEqual(content[:4], b"%PDF")
+        self.assertIn(b"/Subtype /Image", content)
 
 
 if __name__ == "__main__":

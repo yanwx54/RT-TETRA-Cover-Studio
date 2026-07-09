@@ -2,12 +2,21 @@
   "title": "RT-TETRA Cover Studio 覆盖计算报告",
   "subtitle": "V1.0 单基站覆盖计算",
   "sections": [
+    "工程信息",
     "核心结论",
     "输入参数",
     "链路预算",
     "覆盖距离求解",
     "曲线数据摘要",
+    "覆盖曲线图",
     "计算提示"
   ],
-  "curve_sample_points": 10
+  "curve_sample_points": 10,
+  "project_info": {
+    "工程名称": "RT-TETRA 单基站覆盖计算",
+    "线路/区域": "V1.0 标准工程",
+    "编制单位": "RT-TETRA Cover Studio",
+    "报告版本": "V1.0"
+  },
+  "footer": "RT-TETRA Cover Studio | V1.0"
 }

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .common import build_curve_chart_images, project_info_rows
+
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_TEMPLATE_PATH = PROJECT_DIR / "config" / "report_template.json"
@@ -16,6 +18,7 @@ def export_word_report(
 ) -> Path:
     try:
         from docx import Document
+        from docx.shared import Inches
     except ImportError as exc:  # pragma: no cover - exercised only without dependency.
         raise RuntimeError("python-docx is required to export Word reports.") from exc
 
@@ -24,14 +27,17 @@ def export_word_report(
     template = _load_template(template_path)
 
     document = Document()
+    _apply_header_footer(document, template)
     document.add_heading(template["title"], level=0)
     document.add_paragraph(template["subtitle"])
 
+    _add_project_info(document, project_info_rows(template, report_data))
     _add_summary(document, report_data["summary"])
     _add_input_table(document, report_data["input"])
     _add_link_budget(document, report_data["details"]["link_budget"])
     _add_iteration_summary(document, report_data["details"]["iteration_steps"])
     _add_curve_summary(document, report_data["charts"], template["curve_sample_points"])
+    _add_curve_images(document, report_data["charts"], Inches)
     _add_warnings(document, report_data["summary"].get("warnings", []))
 
     document.save(path)
@@ -41,6 +47,17 @@ def export_word_report(
 def _load_template(template_path: str | Path) -> dict[str, Any]:
     with Path(template_path).open("r", encoding="utf-8") as file:
         return json.load(file)
+
+
+def _apply_header_footer(document: Any, template: dict[str, Any]) -> None:
+    section = document.sections[0]
+    section.header.paragraphs[0].text = template["title"]
+    section.footer.paragraphs[0].text = template.get("footer", "")
+
+
+def _add_project_info(document: Any, rows: list[tuple[str, str]]) -> None:
+    document.add_heading("工程信息", level=1)
+    _add_key_value_table(document, rows)
 
 
 def _add_summary(document: Any, summary: dict[str, Any]) -> None:
@@ -133,6 +150,14 @@ def _add_curve_summary(
                 f"{rssi_point['rssi_dbm']:.2f}",
             ],
         )
+
+
+def _add_curve_images(document: Any, charts: dict[str, Any], inches: Any) -> None:
+    document.add_heading("覆盖曲线图", level=1)
+    for chart in build_curve_chart_images(charts):
+        document.add_paragraph(chart.title)
+        chart.image.seek(0)
+        document.add_picture(chart.image, width=inches(6.2))
 
 
 def _add_warnings(document: Any, warnings: list[str]) -> None:

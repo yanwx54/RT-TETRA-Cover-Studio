@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .common import build_curve_chart_images, project_info_rows
+
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_TEMPLATE_PATH = PROJECT_DIR / "config" / "report_template.json"
@@ -76,14 +78,20 @@ def export_pdf_report(
         _paragraph(template["subtitle"], styles["ChineseBody"]),
         Spacer(1, 8),
     ]
+    _add_project_info(story, styles, project_info_rows(template, report_data), colors)
     _add_summary(story, styles, report_data["summary"], colors)
     _add_input_table(story, styles, report_data["input"], colors)
     _add_link_budget(story, styles, report_data["details"]["link_budget"], colors)
     _add_iteration_summary(story, styles, report_data["details"]["iteration_steps"], colors)
     _add_curve_summary(story, styles, report_data["charts"], template["curve_sample_points"], colors)
+    _add_curve_images(story, styles, report_data["charts"])
     _add_warnings(story, styles, report_data["summary"].get("warnings", []), colors)
 
-    document.build(story)
+    document.build(
+        story,
+        onFirstPage=lambda canvas, doc: _draw_header_footer(canvas, doc, template),
+        onLaterPages=lambda canvas, doc: _draw_header_footer(canvas, doc, template),
+    )
     return path
 
 
@@ -96,6 +104,28 @@ def _paragraph(text: str, style: Any) -> Any:
     from reportlab.platypus import Paragraph
 
     return Paragraph(text, style)
+
+
+def _draw_header_footer(canvas: Any, document: Any, template: dict[str, Any]) -> None:
+    from reportlab.lib.units import mm
+
+    width, height = document.pagesize
+    canvas.saveState()
+    canvas.setFont(FONT_NAME, 8)
+    canvas.drawString(document.leftMargin, height - 10 * mm, template["title"])
+    canvas.drawRightString(
+        width - document.rightMargin,
+        10 * mm,
+        f"{template.get('footer', '')} | 第 {document.page} 页",
+    )
+    canvas.restoreState()
+
+
+def _add_project_info(
+    story: list[Any], styles: Any, rows: list[tuple[str, str]], colors: Any
+) -> None:
+    story.append(_paragraph("工程信息", styles["ChineseHeading"]))
+    story.append(_key_value_table(rows, colors))
 
 
 def _add_summary(story: list[Any], styles: Any, summary: dict[str, Any], colors: Any) -> None:
@@ -192,6 +222,18 @@ def _add_curve_summary(
             ]
         )
     story.append(_table(rows, colors, [80, 90, 90]))
+
+
+def _add_curve_images(story: list[Any], styles: Any, charts: dict[str, Any]) -> None:
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Image, Spacer
+
+    story.append(_paragraph("覆盖曲线图", styles["ChineseHeading"]))
+    for chart in build_curve_chart_images(charts):
+        chart.image.seek(0)
+        story.append(_paragraph(chart.title, styles["ChineseBody"]))
+        story.append(Image(chart.image, width=160 * mm, height=80 * mm))
+        story.append(Spacer(1, 6))
 
 
 def _add_warnings(story: list[Any], styles: Any, warnings: list[str], colors: Any) -> None:

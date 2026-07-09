@@ -31,8 +31,18 @@ class WordReportTest(unittest.TestCase):
         document = Document(saved_path)
         text = "\n".join(paragraph.text for paragraph in document.paragraphs)
         self.assertIn("RT-TETRA Cover Studio 覆盖计算报告", text)
+        self.assertIn("工程信息", text)
         self.assertIn("核心结论", text)
-        self.assertGreaterEqual(len(document.tables), 4)
+        self.assertGreaterEqual(len(document.tables), 5)
+        self.assertGreaterEqual(len(document.inline_shapes), 2)
+        header_text = "\n".join(
+            paragraph.text for section in document.sections for paragraph in section.header.paragraphs
+        )
+        footer_text = "\n".join(
+            paragraph.text for section in document.sections for paragraph in section.footer.paragraphs
+        )
+        self.assertIn("RT-TETRA Cover Studio 覆盖计算报告", header_text)
+        self.assertIn("RT-TETRA Cover Studio", footer_text)
 
 
 if __name__ == "__main__":
