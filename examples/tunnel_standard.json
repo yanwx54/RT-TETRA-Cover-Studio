@@ -1,0 +1,31 @@
+{
+  "case_id": "V1-TUNNEL-001",
+  "name": "隧道区间标准算例",
+  "description": "用于验证 Tunnel Model 隧道场景的标准输入。",
+  "input": {
+    "frequency_mhz": 400.0,
+    "tx_power_dbm": 40.0,
+    "base_antenna_gain_dbi": 5.0,
+    "feeder_loss_db": 2.0,
+    "connector_loss_db": 1.0,
+    "mobile_antenna_gain_dbi": 0.0,
+    "receiver_sensitivity_dbm": -112.0,
+    "base_height_m": 3.0,
+    "mobile_height_m": 1.5,
+    "scenario_type": "tunnel",
+    "scenario_params": {
+      "tunnel_width_m": 6.0,
+      "tunnel_height_m": 5.5,
+      "alpha_db_per_km": 8.0,
+      "bend_loss_db": 0.0
+    },
+    "engineering_margin_db": 8.0
+  },
+  "expected": {
+    "model_name": "Tunnel Model",
+    "coverage_distance_m": {
+      "min": 4500.0,
+      "max": 5200.0
+    }
+  }
+}

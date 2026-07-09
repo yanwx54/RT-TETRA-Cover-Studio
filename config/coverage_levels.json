@@ -1,0 +1,21 @@
+{
+  "unit": "dBm",
+  "levels": [
+    {
+      "name": "优",
+      "min_rssi_dbm": -85.0
+    },
+    {
+      "name": "良",
+      "min_rssi_dbm": -95.0
+    },
+    {
+      "name": "可用",
+      "min_rssi_dbm": -105.0
+    },
+    {
+      "name": "边缘覆盖",
+      "min_rssi_dbm": null
+    }
+  ]
+}

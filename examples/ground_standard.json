@@ -1,0 +1,30 @@
+{
+  "case_id": "V1-GROUND-001",
+  "name": "地面区段标准算例",
+  "description": "用于验证 COST231-Walfisch-Ikegami 地面场景的标准输入。",
+  "input": {
+    "frequency_mhz": 400.0,
+    "tx_power_dbm": 40.0,
+    "base_antenna_gain_dbi": 5.0,
+    "feeder_loss_db": 2.0,
+    "connector_loss_db": 1.0,
+    "mobile_antenna_gain_dbi": 0.0,
+    "receiver_sensitivity_dbm": -112.0,
+    "base_height_m": 25.0,
+    "mobile_height_m": 1.5,
+    "scenario_type": "ground",
+    "scenario_params": {
+      "building_height_m": 18.0,
+      "building_spacing_m": 40.0,
+      "street_width_m": 20.0
+    },
+    "engineering_margin_db": 8.0
+  },
+  "expected": {
+    "model_name": "COST231-Walfisch-Ikegami",
+    "coverage_distance_m": {
+      "min": 3500.0,
+      "max": 4200.0
+    }
+  }
+}

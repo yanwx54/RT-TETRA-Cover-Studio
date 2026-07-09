@@ -1,0 +1,30 @@
+{
+  "case_id": "V1-UNDERGROUND-001",
+  "name": "地下站厅标准算例",
+  "description": "用于验证 ITU Indoor 地下场景的标准输入。",
+  "input": {
+    "frequency_mhz": 400.0,
+    "tx_power_dbm": 40.0,
+    "base_antenna_gain_dbi": 5.0,
+    "feeder_loss_db": 2.0,
+    "connector_loss_db": 1.0,
+    "mobile_antenna_gain_dbi": 0.0,
+    "receiver_sensitivity_dbm": -112.0,
+    "base_height_m": 3.0,
+    "mobile_height_m": 1.5,
+    "scenario_type": "underground",
+    "scenario_params": {
+      "distance_power_loss_coefficient": 40.0,
+      "wall_loss_db": 0.0,
+      "floor_loss_db": 0.0
+    },
+    "engineering_margin_db": 8.0
+  },
+  "expected": {
+    "model_name": "ITU Indoor",
+    "coverage_distance_m": {
+      "min": 1000.0,
+      "max": 1300.0
+    }
+  }
+}
