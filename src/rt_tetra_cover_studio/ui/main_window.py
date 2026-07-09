@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -28,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from rt_tetra_cover_studio.engine import calculate_coverage
 from rt_tetra_cover_studio.io import calculation_result_to_dict, load_json
+from rt_tetra_cover_studio.ui.chart_data import extract_chart_series
 from rt_tetra_cover_studio.ui.input_builder import (
     SCENARIO_LABELS,
     SCENARIO_PARAM_LABELS,
@@ -43,7 +47,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("RT-TETRA Cover Studio")
-        self.resize(1180, 760)
+        self.resize(1280, 820)
         self.config = load_json(DEFAULT_CONFIG_PATH)
         self.base_fields: dict[str, QDoubleSpinBox] = {}
         self.scenario_fields: dict[str, dict[str, QDoubleSpinBox]] = {}
@@ -89,6 +93,7 @@ class MainWindow(QMainWindow):
         result_panel = QWidget()
         result_layout = QVBoxLayout(result_panel)
         result_layout.addWidget(self._build_summary_group())
+        result_layout.addWidget(self._build_charts_group(), stretch=2)
         result_layout.addWidget(self._build_steps_group(), stretch=1)
         content_layout.addWidget(result_panel, stretch=1)
 
@@ -190,6 +195,22 @@ class MainWindow(QMainWindow):
 
         return group
 
+    def _build_charts_group(self) -> QGroupBox:
+        group = QGroupBox("覆盖曲线")
+        layout = QVBoxLayout(group)
+
+        self.chart_tabs = QTabWidget()
+        self.path_loss_figure = Figure(figsize=(5, 3), tight_layout=True)
+        self.path_loss_canvas = FigureCanvasQTAgg(self.path_loss_figure)
+        self.rssi_figure = Figure(figsize=(5, 3), tight_layout=True)
+        self.rssi_canvas = FigureCanvasQTAgg(self.rssi_figure)
+        self.chart_tabs.addTab(self.path_loss_canvas, "Path Loss")
+        self.chart_tabs.addTab(self.rssi_canvas, "RSSI")
+        layout.addWidget(self.chart_tabs)
+
+        self._plot_empty_charts()
+        return group
+
     def _populate_defaults(self) -> None:
         for section in ("wireless", "height"):
             for key, value in self.config[section].items():
@@ -256,6 +277,83 @@ class MainWindow(QMainWindow):
 
         warnings = summary["warnings"]
         self.warning_text.setPlainText("\n".join(warnings) if warnings else "无告警")
+        self._plot_charts(serialized["charts"])
+
+    def _plot_empty_charts(self) -> None:
+        self._draw_chart(
+            self.path_loss_figure,
+            self.path_loss_canvas,
+            title="Path Loss - Distance",
+            x_values=[],
+            y_values=[],
+            y_label="Path Loss (dB)",
+        )
+        self._draw_chart(
+            self.rssi_figure,
+            self.rssi_canvas,
+            title="RSSI - Distance",
+            x_values=[],
+            y_values=[],
+            y_label="RSSI (dBm)",
+        )
+
+    def _plot_charts(self, charts: dict) -> None:
+        series = extract_chart_series(charts)
+        self._draw_chart(
+            self.path_loss_figure,
+            self.path_loss_canvas,
+            title="Path Loss - Distance",
+            x_values=series["distance_m"],
+            y_values=series["path_loss_db"],
+            y_label="Path Loss (dB)",
+            boundary_x=series["boundary_distance_m"],
+            boundary_y=series["boundary_path_loss_db"],
+        )
+        self._draw_chart(
+            self.rssi_figure,
+            self.rssi_canvas,
+            title="RSSI - Distance",
+            x_values=series["distance_m"],
+            y_values=series["rssi_dbm"],
+            y_label="RSSI (dBm)",
+            boundary_x=series["boundary_distance_m"],
+            boundary_y=series["boundary_rssi_dbm"],
+        )
+
+    def _draw_chart(
+        self,
+        figure: Figure,
+        canvas: FigureCanvasQTAgg,
+        *,
+        title: str,
+        x_values: list[float],
+        y_values: list[float],
+        y_label: str,
+        boundary_x: float | None = None,
+        boundary_y: float | None = None,
+    ) -> None:
+        figure.clear()
+        axis = figure.add_subplot(111)
+        axis.set_title(title)
+        axis.set_xlabel("Distance (m)")
+        axis.set_ylabel(y_label)
+        axis.grid(True, linestyle="--", alpha=0.35)
+
+        if x_values and y_values:
+            axis.plot(x_values, y_values, color="#1769aa", linewidth=1.8)
+        if boundary_x is not None and boundary_y is not None:
+            axis.axvline(boundary_x, color="#c62828", linestyle="--", linewidth=1.1)
+            axis.scatter([boundary_x], [boundary_y], color="#c62828", zorder=3)
+            axis.annotate(
+                "Boundary",
+                xy=(boundary_x, boundary_y),
+                xytext=(8, 8),
+                textcoords="offset points",
+                fontsize=9,
+                color="#c62828",
+            )
+
+        canvas.draw_idle()
 
     def _spin_box(self, minimum: float, maximum: float, step: float) -> QDoubleSpinBox:
         widget = QDoubleSpinBox()
