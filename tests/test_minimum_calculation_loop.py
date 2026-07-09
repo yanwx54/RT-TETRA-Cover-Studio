@@ -11,7 +11,7 @@ if str(SRC_DIR) not in sys.path:
 
 from rt_tetra_cover_studio.engine import calculate_coverage, calculate_link_budget
 from rt_tetra_cover_studio.models import CalculationInput
-from rt_tetra_cover_studio.propagation import ItuIndoorModel
+from rt_tetra_cover_studio.propagation import Cost231WiModel, ItuIndoorModel, TunnelModel, ViaductModel
 from rt_tetra_cover_studio.validation import validate_input
 
 
@@ -29,6 +29,51 @@ def sample_input() -> CalculationInput:
         scenario_type="underground",
         scenario_params={"distance_power_loss_coefficient": 40.0},
         engineering_margin_db=8.0,
+    )
+
+
+def tunnel_input() -> CalculationInput:
+    return CalculationInput(
+        **{
+            **sample_input().__dict__,
+            "scenario_type": "tunnel",
+            "scenario_params": {
+                "tunnel_width_m": 6.0,
+                "tunnel_height_m": 5.5,
+                "alpha_db_per_km": 8.0,
+            },
+        }
+    )
+
+
+def ground_input() -> CalculationInput:
+    return CalculationInput(
+        **{
+            **sample_input().__dict__,
+            "base_height_m": 25.0,
+            "scenario_type": "ground",
+            "scenario_params": {
+                "building_height_m": 18.0,
+                "building_spacing_m": 40.0,
+                "street_width_m": 20.0,
+            },
+        }
+    )
+
+
+def viaduct_input() -> CalculationInput:
+    return CalculationInput(
+        **{
+            **ground_input().__dict__,
+            "scenario_type": "viaduct",
+            "scenario_params": {
+                "building_height_m": 18.0,
+                "building_spacing_m": 40.0,
+                "street_width_m": 20.0,
+                "viaduct_height_m": 12.0,
+                "curve_radius_m": 600.0,
+            },
+        }
     )
 
 
@@ -57,6 +102,35 @@ class MinimumCalculationLoopTest(unittest.TestCase):
         self.assertLess(near.path_loss_db, far.path_loss_db)
         self.assertIn("distance_term_db", far.intermediate_values)
 
+    def test_tunnel_model_is_monotonic(self) -> None:
+        model = TunnelModel()
+        input_data = tunnel_input()
+
+        near = model.calculate_path_loss(input_data, 100.0)
+        far = model.calculate_path_loss(input_data, 1000.0)
+
+        self.assertLess(near.path_loss_db, far.path_loss_db)
+        self.assertIn("section_correction_db", far.intermediate_values)
+
+    def test_cost231_wi_model_is_monotonic(self) -> None:
+        model = Cost231WiModel()
+        input_data = ground_input()
+
+        near = model.calculate_path_loss(input_data, 100.0)
+        far = model.calculate_path_loss(input_data, 1000.0)
+
+        self.assertLess(near.path_loss_db, far.path_loss_db)
+        self.assertIn("multiscreen_db", far.intermediate_values)
+
+    def test_viaduct_model_adds_correction(self) -> None:
+        model = ViaductModel()
+        input_data = viaduct_input()
+
+        result = model.calculate_path_loss(input_data, 1000.0)
+
+        self.assertEqual(result.model_name, "COST231-WI + Viaduct Correction")
+        self.assertIn("viaduct_correction_db", result.intermediate_values)
+
     def test_calculate_coverage_minimum_loop(self) -> None:
         result = calculate_coverage(sample_input())
 
@@ -69,6 +143,31 @@ class MinimumCalculationLoopTest(unittest.TestCase):
         )
         self.assertEqual(len(result.curve_points), 50)
         self.assertGreater(len(result.iteration_steps), 0)
+
+    def test_calculate_coverage_for_all_v1_scenarios(self) -> None:
+        cases = [
+            ("ITU Indoor", sample_input()),
+            ("Tunnel Model", tunnel_input()),
+            ("COST231-Walfisch-Ikegami", ground_input()),
+            ("COST231-WI + Viaduct Correction", viaduct_input()),
+        ]
+
+        for expected_model_name, input_data in cases:
+            with self.subTest(scenario=input_data.scenario_type):
+                result = calculate_coverage(input_data)
+
+                self.assertEqual(result.model_name, expected_model_name)
+                self.assertGreaterEqual(result.coverage_distance_m, 1.0)
+                self.assertEqual(len(result.curve_points), 50)
+
+    def test_validation_rejects_missing_scenario_params(self) -> None:
+        invalid = CalculationInput(
+            **{**tunnel_input().__dict__, "scenario_params": {"tunnel_width_m": 6.0}}
+        )
+
+        errors = validate_input(invalid)
+
+        self.assertTrue(any("tunnel_height_m" in error for error in errors))
 
 
 if __name__ == "__main__":
