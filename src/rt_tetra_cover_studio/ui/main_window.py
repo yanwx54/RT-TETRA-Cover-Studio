@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from rt_tetra_cover_studio.engine import calculate_coverage
 from rt_tetra_cover_studio.io import calculation_result_to_dict, load_json
+from rt_tetra_cover_studio.report import export_pdf_report, export_word_report
 from rt_tetra_cover_studio.ui.chart_data import extract_chart_series
 from rt_tetra_cover_studio.ui.input_builder import (
     EXAMPLE_CASES,
@@ -57,6 +59,7 @@ class MainWindow(QMainWindow):
         self.base_fields: dict[str, QDoubleSpinBox] = {}
         self.scenario_fields: dict[str, dict[str, QDoubleSpinBox]] = {}
         self.result_labels: dict[str, QLabel] = {}
+        self.current_report_data: dict | None = None
 
         self._build_ui()
         self._populate_defaults()
@@ -80,8 +83,16 @@ class MainWindow(QMainWindow):
         self.calculate_button.clicked.connect(self._calculate)
         self.reset_button = QPushButton("重置默认")
         self.reset_button.clicked.connect(self._populate_defaults)
+        self.export_word_button = QPushButton("导出 Word")
+        self.export_word_button.setEnabled(False)
+        self.export_word_button.clicked.connect(lambda: self._export_report("word"))
+        self.export_pdf_button = QPushButton("导出 PDF")
+        self.export_pdf_button.setEnabled(False)
+        self.export_pdf_button.clicked.connect(lambda: self._export_report("pdf"))
         header_layout.addWidget(self.calculate_button)
         header_layout.addWidget(self.reset_button)
+        header_layout.addWidget(self.export_word_button)
+        header_layout.addWidget(self.export_pdf_button)
         root_layout.addLayout(header_layout)
 
         content_layout = QHBoxLayout()
@@ -110,6 +121,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.status_label)
 
         self.setCentralWidget(root)
+        self._connect_input_change_handlers()
         self._apply_styles()
 
     def _build_base_group(self) -> QGroupBox:
@@ -247,6 +259,7 @@ class MainWindow(QMainWindow):
             self.example_combo.blockSignals(True)
             self.example_combo.setCurrentIndex(example_index)
             self.example_combo.blockSignals(False)
+        self._invalidate_report_data()
 
     def _on_example_selected(self) -> None:
         scenario_type = self.example_combo.currentData()
@@ -256,10 +269,12 @@ class MainWindow(QMainWindow):
             self.scenario_combo.setCurrentIndex(scenario_index)
             self.scenario_stack.setCurrentIndex(scenario_index)
             self.scenario_combo.blockSignals(False)
+        self._invalidate_report_data()
 
     def _load_selected_example(self) -> None:
         input_data = load_example_input(EXAMPLES_DIR, self.example_combo.currentData())
         self._apply_input_data(input_data)
+        self._invalidate_report_data()
         self.status_label.setText("已加载标准算例")
 
     def _calculate(self) -> None:
@@ -267,16 +282,20 @@ class MainWindow(QMainWindow):
             input_data = self._build_current_input()
             validation_errors = validate_input(input_data)
             if validation_errors:
+                self._invalidate_report_data()
                 self._show_validation_errors(validation_errors)
                 return
             result = calculate_coverage(input_data)
             serialized = calculation_result_to_dict(result)
         except Exception as exc:
+            self._invalidate_report_data()
             QMessageBox.warning(self, "计算失败", str(exc))
             self.status_label.setText("计算失败")
             return
 
         self._show_result(serialized)
+        self.current_report_data = serialized
+        self._set_export_buttons_enabled(True)
         self.status_label.setText("计算完成")
 
     def _build_current_input(self):
@@ -343,6 +362,57 @@ class MainWindow(QMainWindow):
         warnings = summary["warnings"]
         self.warning_text.setPlainText("\n".join(warnings) if warnings else "无告警")
         self._plot_charts(serialized["charts"])
+
+    def _export_report(self, report_type: str) -> None:
+        if self.current_report_data is None:
+            QMessageBox.warning(self, "无法导出", "请先完成一次计算。")
+            return
+
+        if report_type == "word":
+            title = "导出 Word 报告"
+            default_name = "rt_tetra_cover_report.docx"
+            file_filter = "Word 文档 (*.docx)"
+            suffix = ".docx"
+            exporter = export_word_report
+        else:
+            title = "导出 PDF 报告"
+            default_name = "rt_tetra_cover_report.pdf"
+            file_filter = "PDF 文件 (*.pdf)"
+            suffix = ".pdf"
+            exporter = export_pdf_report
+
+        default_path = str(PROJECT_DIR / "reports" / default_name)
+        selected_path, _ = QFileDialog.getSaveFileName(self, title, default_path, file_filter)
+        if not selected_path:
+            return
+        output_path = Path(selected_path)
+        if output_path.suffix.lower() != suffix:
+            output_path = output_path.with_suffix(suffix)
+
+        try:
+            saved_path = exporter(self.current_report_data, output_path)
+        except Exception as exc:
+            QMessageBox.warning(self, "导出失败", str(exc))
+            self.status_label.setText("导出失败")
+            return
+
+        QMessageBox.information(self, "导出完成", f"报告已保存：{saved_path}")
+        self.status_label.setText(f"报告已导出：{saved_path.name}")
+
+    def _connect_input_change_handlers(self) -> None:
+        for field in self.base_fields.values():
+            field.valueChanged.connect(self._invalidate_report_data)
+        for fields in self.scenario_fields.values():
+            for field in fields.values():
+                field.valueChanged.connect(self._invalidate_report_data)
+
+    def _invalidate_report_data(self, *_unused: object) -> None:
+        self.current_report_data = None
+        self._set_export_buttons_enabled(False)
+
+    def _set_export_buttons_enabled(self, enabled: bool) -> None:
+        self.export_word_button.setEnabled(enabled)
+        self.export_pdf_button.setEnabled(enabled)
 
     def _plot_empty_charts(self) -> None:
         self._draw_chart(
