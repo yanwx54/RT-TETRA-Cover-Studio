@@ -11,7 +11,12 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from rt_tetra_cover_studio.engine import calculate_coverage
-from rt_tetra_cover_studio.io import load_example_case, load_json
+from rt_tetra_cover_studio.io import (
+    calculation_result_to_dict,
+    load_example_case,
+    load_json,
+    save_calculation_result,
+)
 
 
 EXAMPLE_FILES = [
@@ -53,6 +58,33 @@ class ExampleCasesTest(unittest.TestCase):
                 self.assertGreaterEqual(result.coverage_distance_m, expected_range["min"])
                 self.assertLessEqual(result.coverage_distance_m, expected_range["max"])
                 self.assertEqual(len(result.curve_points), 50)
+
+    def test_calculation_result_serializes_for_gui_and_report(self) -> None:
+        case_data = load_example_case(PROJECT_DIR / "examples" / "underground_standard.json")
+        result = calculate_coverage(case_data["calculation_input"])
+        serialized = calculation_result_to_dict(result)
+
+        self.assertEqual(
+            {"input", "summary", "details", "charts", "report_sections"},
+            set(serialized),
+        )
+        self.assertEqual(serialized["summary"]["model_name"], "ITU Indoor")
+        self.assertIn("path_loss_curve", serialized["charts"])
+        self.assertIn("rssi_curve", serialized["charts"])
+        self.assertEqual(len(serialized["charts"]["path_loss_curve"]), 50)
+        self.assertEqual(len(serialized["charts"]["rssi_curve"]), 50)
+        self.assertGreaterEqual(len(serialized["report_sections"]), 5)
+
+    def test_save_calculation_result_writes_json(self) -> None:
+        case_data = load_example_case(PROJECT_DIR / "examples" / "underground_standard.json")
+        result = calculate_coverage(case_data["calculation_input"])
+        output_path = PROJECT_DIR / "reports" / "test_outputs" / "underground_result.json"
+
+        saved_path = save_calculation_result(result, output_path)
+        saved_data = load_json(saved_path)
+
+        self.assertEqual(saved_data["summary"]["model_name"], "ITU Indoor")
+        self.assertIn("coverage_boundary", saved_data["charts"])
 
 
 if __name__ == "__main__":

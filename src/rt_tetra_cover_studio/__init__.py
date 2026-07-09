@@ -1,7 +1,13 @@
 """Core package for RT-TETRA Cover Studio."""
 
 from .engine import calculate_coverage
-from .io import calculation_input_from_dict, load_example_case
+from .io import (
+    calculation_input_from_dict,
+    calculation_input_to_dict,
+    calculation_result_to_dict,
+    load_example_case,
+    save_calculation_result,
+)
 from .models import CalculationInput, CalculationResult
 
 __all__ = [
@@ -9,5 +15,8 @@ __all__ = [
     "CalculationResult",
     "calculate_coverage",
     "calculation_input_from_dict",
+    "calculation_input_to_dict",
+    "calculation_result_to_dict",
     "load_example_case",
+    "save_calculation_result",
 ]
