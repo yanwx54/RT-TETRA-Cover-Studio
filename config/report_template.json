@@ -1,0 +1,13 @@
+{
+  "title": "RT-TETRA Cover Studio 覆盖计算报告",
+  "subtitle": "V1.0 单基站覆盖计算",
+  "sections": [
+    "核心结论",
+    "输入参数",
+    "链路预算",
+    "覆盖距离求解",
+    "曲线数据摘要",
+    "计算提示"
+  ],
+  "curve_sample_points": 10
+}

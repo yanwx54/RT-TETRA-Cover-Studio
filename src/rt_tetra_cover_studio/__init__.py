@@ -9,6 +9,7 @@ from .io import (
     save_calculation_result,
 )
 from .models import CalculationInput, CalculationResult
+from .report import export_word_report
 
 __all__ = [
     "CalculationInput",
@@ -19,4 +20,5 @@ __all__ = [
     "calculation_result_to_dict",
     "load_example_case",
     "save_calculation_result",
+    "export_word_report",
 ]
