@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from rt_tetra_cover_studio.io import calculation_input_from_dict
+from rt_tetra_cover_studio.io import calculation_input_from_dict, load_example_case
 from rt_tetra_cover_studio.models import CalculationInput
 
 
@@ -28,6 +29,13 @@ SCENARIO_PARAM_LABELS = {
     "curve_radius_m": "曲线半径 m",
 }
 
+EXAMPLE_CASES = {
+    "underground": ("地下站厅标准算例", "underground_standard.json"),
+    "tunnel": ("隧道区间标准算例", "tunnel_standard.json"),
+    "ground": ("地面区段标准算例", "ground_standard.json"),
+    "viaduct": ("高架区段标准算例", "viaduct_standard.json"),
+}
+
 
 def build_input_data(
     *,
@@ -46,3 +54,24 @@ def build_input_data(
     input_data.update(field_values)
     input_data["scenario_params"].update(scenario_values)
     return calculation_input_from_dict(input_data)
+
+
+def split_input_for_fields(input_data: CalculationInput) -> tuple[dict[str, float], dict[str, float]]:
+    base_values = {
+        "frequency_mhz": input_data.frequency_mhz,
+        "tx_power_dbm": input_data.tx_power_dbm,
+        "base_antenna_gain_dbi": input_data.base_antenna_gain_dbi,
+        "feeder_loss_db": input_data.feeder_loss_db,
+        "connector_loss_db": input_data.connector_loss_db,
+        "mobile_antenna_gain_dbi": input_data.mobile_antenna_gain_dbi,
+        "receiver_sensitivity_dbm": input_data.receiver_sensitivity_dbm,
+        "base_height_m": input_data.base_height_m,
+        "mobile_height_m": input_data.mobile_height_m,
+        "engineering_margin_db": input_data.engineering_margin_db,
+    }
+    return base_values, dict(input_data.scenario_params)
+
+
+def load_example_input(examples_dir: str | Path, scenario_type: str) -> CalculationInput:
+    _, filename = EXAMPLE_CASES[scenario_type]
+    return load_example_case(Path(examples_dir) / filename)["calculation_input"]

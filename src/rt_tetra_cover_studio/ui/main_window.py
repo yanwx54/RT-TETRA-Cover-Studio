@@ -33,14 +33,19 @@ from rt_tetra_cover_studio.engine import calculate_coverage
 from rt_tetra_cover_studio.io import calculation_result_to_dict, load_json
 from rt_tetra_cover_studio.ui.chart_data import extract_chart_series
 from rt_tetra_cover_studio.ui.input_builder import (
+    EXAMPLE_CASES,
     SCENARIO_LABELS,
     SCENARIO_PARAM_LABELS,
     build_input_data,
+    load_example_input,
+    split_input_for_fields,
 )
+from rt_tetra_cover_studio.validation import validate_input
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = PROJECT_DIR / "config" / "default_parameters.json"
+EXAMPLES_DIR = PROJECT_DIR / "examples"
 
 
 class MainWindow(QMainWindow):
@@ -73,7 +78,10 @@ class MainWindow(QMainWindow):
 
         self.calculate_button = QPushButton("计算")
         self.calculate_button.clicked.connect(self._calculate)
+        self.reset_button = QPushButton("重置默认")
+        self.reset_button.clicked.connect(self._populate_defaults)
         header_layout.addWidget(self.calculate_button)
+        header_layout.addWidget(self.reset_button)
         root_layout.addLayout(header_layout)
 
         content_layout = QHBoxLayout()
@@ -136,6 +144,17 @@ class MainWindow(QMainWindow):
             self.scenario_combo.addItem(label, scenario_type)
         self.scenario_combo.currentIndexChanged.connect(self._on_scenario_changed)
         layout.addWidget(self.scenario_combo)
+
+        example_layout = QHBoxLayout()
+        self.example_combo = QComboBox()
+        for scenario_type, (label, _) in EXAMPLE_CASES.items():
+            self.example_combo.addItem(label, scenario_type)
+        self.example_combo.currentIndexChanged.connect(self._on_example_selected)
+        self.load_example_button = QPushButton("加载算例")
+        self.load_example_button.clicked.connect(self._load_selected_example)
+        example_layout.addWidget(self.example_combo)
+        example_layout.addWidget(self.load_example_button)
+        layout.addLayout(example_layout)
 
         self.scenario_stack = QStackedWidget()
         for scenario_type in SCENARIO_LABELS:
@@ -222,21 +241,34 @@ class MainWindow(QMainWindow):
 
     def _on_scenario_changed(self) -> None:
         self.scenario_stack.setCurrentIndex(self.scenario_combo.currentIndex())
+        scenario_type = self.scenario_combo.currentData()
+        example_index = self.example_combo.findData(scenario_type)
+        if example_index >= 0:
+            self.example_combo.blockSignals(True)
+            self.example_combo.setCurrentIndex(example_index)
+            self.example_combo.blockSignals(False)
+
+    def _on_example_selected(self) -> None:
+        scenario_type = self.example_combo.currentData()
+        scenario_index = self.scenario_combo.findData(scenario_type)
+        if scenario_index >= 0:
+            self.scenario_combo.blockSignals(True)
+            self.scenario_combo.setCurrentIndex(scenario_index)
+            self.scenario_stack.setCurrentIndex(scenario_index)
+            self.scenario_combo.blockSignals(False)
+
+    def _load_selected_example(self) -> None:
+        input_data = load_example_input(EXAMPLES_DIR, self.example_combo.currentData())
+        self._apply_input_data(input_data)
+        self.status_label.setText("已加载标准算例")
 
     def _calculate(self) -> None:
         try:
-            scenario_type = self.scenario_combo.currentData()
-            field_values = {key: widget.value() for key, widget in self.base_fields.items()}
-            scenario_values = {
-                key: widget.value()
-                for key, widget in self.scenario_fields[scenario_type].items()
-            }
-            input_data = build_input_data(
-                config=self.config,
-                scenario_type=scenario_type,
-                field_values=field_values,
-                scenario_values=scenario_values,
-            )
+            input_data = self._build_current_input()
+            validation_errors = validate_input(input_data)
+            if validation_errors:
+                self._show_validation_errors(validation_errors)
+                return
             result = calculate_coverage(input_data)
             serialized = calculation_result_to_dict(result)
         except Exception as exc:
@@ -246,6 +278,39 @@ class MainWindow(QMainWindow):
 
         self._show_result(serialized)
         self.status_label.setText("计算完成")
+
+    def _build_current_input(self):
+        scenario_type = self.scenario_combo.currentData()
+        field_values = {key: widget.value() for key, widget in self.base_fields.items()}
+        scenario_values = {
+            key: widget.value()
+            for key, widget in self.scenario_fields[scenario_type].items()
+        }
+        return build_input_data(
+            config=self.config,
+            scenario_type=scenario_type,
+            field_values=field_values,
+            scenario_values=scenario_values,
+        )
+
+    def _apply_input_data(self, input_data) -> None:
+        scenario_index = self.scenario_combo.findData(input_data.scenario_type)
+        if scenario_index >= 0:
+            self.scenario_combo.setCurrentIndex(scenario_index)
+        base_values, scenario_values = split_input_for_fields(input_data)
+        for key, value in base_values.items():
+            if key in self.base_fields:
+                self.base_fields[key].setValue(float(value))
+        for key, value in scenario_values.items():
+            field = self.scenario_fields[input_data.scenario_type].get(key)
+            if field is not None:
+                field.setValue(float(value))
+
+    def _show_validation_errors(self, errors: list[str]) -> None:
+        message = "\n".join(errors)
+        self.warning_text.setPlainText(message)
+        self.status_label.setText("输入参数有误")
+        QMessageBox.warning(self, "输入参数有误", message)
 
     def _show_result(self, serialized: dict) -> None:
         summary = serialized["summary"]
