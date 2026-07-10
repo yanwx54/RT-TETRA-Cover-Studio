@@ -5,27 +5,32 @@ from pathlib import Path
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QFont, QFontDatabase, QResizeEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
-    QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
-    QTabWidget,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -49,16 +54,22 @@ from rt_tetra_cover_studio.validation import validate_input
 PROJECT_DIR = project_dir()
 DEFAULT_CONFIG_PATH = resource_path("config", "default_parameters.json")
 EXAMPLES_DIR = resource_path("examples")
+UI_FONT_LOADED = False
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        self._ensure_ui_font()
         self.setWindowTitle("RT-TETRA Cover Studio")
         self.resize(1280, 820)
+        self.setMinimumSize(1080, 720)
         self.config = load_json(DEFAULT_CONFIG_PATH)
         self.base_fields: dict[str, QDoubleSpinBox] = {}
         self.scenario_fields: dict[str, dict[str, QDoubleSpinBox]] = {}
+        self.scenario_buttons: dict[str, QPushButton] = {}
+        self.metric_cards: list[QFrame] = []
+        self.metric_columns = 4
         self.result_labels: dict[str, QLabel] = {}
         self.current_report_data: dict | None = None
 
@@ -67,112 +78,219 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
+        root.setObjectName("appRoot")
         root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        header_layout = QHBoxLayout()
+        header = QFrame()
+        header.setObjectName("appHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(20, 10, 20, 10)
+        header_layout.setSpacing(12)
+
+        brand_mark = QLabel("RT")
+        brand_mark.setObjectName("brandMark")
+        brand_mark.setFixedSize(38, 38)
+        brand_mark.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(brand_mark)
+
         title = QLabel("RT-TETRA Cover Studio")
         title.setObjectName("titleLabel")
-        subtitle = QLabel("V1.0 单基站覆盖计算原型")
+        subtitle = QLabel("轨道交通无线覆盖工程工作台")
         subtitle.setObjectName("subtitleLabel")
         header_text = QVBoxLayout()
+        header_text.setSpacing(1)
         header_text.addWidget(title)
         header_text.addWidget(subtitle)
         header_layout.addLayout(header_text)
         header_layout.addStretch()
 
-        self.calculate_button = QPushButton("计算")
-        self.calculate_button.clicked.connect(self._calculate)
-        self.reset_button = QPushButton("重置默认")
-        self.reset_button.clicked.connect(self._populate_defaults)
-        self.export_word_button = QPushButton("导出 Word")
-        self.export_word_button.setEnabled(False)
-        self.export_word_button.clicked.connect(lambda: self._export_report("word"))
-        self.export_pdf_button = QPushButton("导出 PDF")
-        self.export_pdf_button.setEnabled(False)
-        self.export_pdf_button.clicked.connect(lambda: self._export_report("pdf"))
-        header_layout.addWidget(self.calculate_button)
-        header_layout.addWidget(self.reset_button)
-        header_layout.addWidget(self.export_word_button)
-        header_layout.addWidget(self.export_pdf_button)
-        root_layout.addLayout(header_layout)
+        self.current_case_label = QLabel("地下站厅标准算例")
+        self.current_case_label.setObjectName("caseLabel")
+        header_layout.addWidget(self.current_case_label)
 
-        content_layout = QHBoxLayout()
-        root_layout.addLayout(content_layout, stretch=1)
+        self.reset_button = QPushButton("重置")
+        self.reset_button.setObjectName("secondaryButton")
+        self.reset_button.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.reset_button.setToolTip("恢复默认参数")
+        self.reset_button.clicked.connect(self._populate_defaults)
+
+        self.export_button = QToolButton()
+        self.export_button.setObjectName("secondaryButton")
+        self.export_button.setText("导出报告")
+        self.export_button.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.export_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.export_button.setPopupMode(QToolButton.InstantPopup)
+        export_menu = QMenu(self.export_button)
+        self.export_word_action = QAction("导出 Word", self)
+        self.export_pdf_action = QAction("导出 PDF", self)
+        self.export_word_action.triggered.connect(lambda: self._export_report("word"))
+        self.export_pdf_action.triggered.connect(lambda: self._export_report("pdf"))
+        export_menu.addAction(self.export_word_action)
+        export_menu.addAction(self.export_pdf_action)
+        self.export_button.setMenu(export_menu)
+        self.export_button.setEnabled(False)
+
+        self.calculate_button = QPushButton("开始计算")
+        self.calculate_button.setObjectName("primaryButton")
+        self.calculate_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self.calculate_button.clicked.connect(self._calculate)
+        header_layout.addWidget(self.reset_button)
+        header_layout.addWidget(self.export_button)
+        header_layout.addWidget(self.calculate_button)
+        root_layout.addWidget(header)
+
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        root_layout.addWidget(content, stretch=1)
 
         input_scroll = QScrollArea()
+        input_scroll.setObjectName("inputScroll")
         input_scroll.setWidgetResizable(True)
-        input_scroll.setMinimumWidth(390)
+        input_scroll.setMinimumWidth(310)
+        input_scroll.setMaximumWidth(350)
+        input_scroll.setFrameShape(QFrame.NoFrame)
+        input_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         input_panel = QWidget()
+        input_panel.setObjectName("inputPanel")
         input_layout = QVBoxLayout(input_panel)
-        input_layout.addWidget(self._build_base_group())
-        input_layout.addWidget(self._build_scenario_group())
+        input_layout.setContentsMargins(20, 18, 20, 20)
+        input_layout.setSpacing(14)
+        input_layout.addWidget(self._build_scenario_section())
+        input_layout.addWidget(self._divider())
+        input_layout.addWidget(self._build_base_section())
+        input_layout.addWidget(self._divider())
+        input_layout.addWidget(self._build_scenario_parameters_section())
         input_layout.addStretch()
         input_scroll.setWidget(input_panel)
         content_layout.addWidget(input_scroll)
 
+        result_scroll = QScrollArea()
+        result_scroll.setObjectName("resultScroll")
+        result_scroll.setWidgetResizable(True)
+        result_scroll.setFrameShape(QFrame.NoFrame)
+        result_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         result_panel = QWidget()
+        result_panel.setObjectName("resultPanel")
         result_layout = QVBoxLayout(result_panel)
-        result_layout.addWidget(self._build_summary_group())
-        result_layout.addWidget(self._build_charts_group(), stretch=2)
-        result_layout.addWidget(self._build_steps_group(), stretch=1)
-        content_layout.addWidget(result_panel, stretch=1)
+        result_layout.setContentsMargins(22, 18, 22, 18)
+        result_layout.setSpacing(14)
+        result_layout.addWidget(self._build_metric_cards())
+        result_layout.addWidget(self._build_context_strip())
+        result_layout.addWidget(self._build_charts_panel(), stretch=3)
+        result_layout.addWidget(self._build_steps_panel(), stretch=2)
+        result_scroll.setWidget(result_panel)
+        content_layout.addWidget(result_scroll, stretch=1)
 
+        footer = QFrame()
+        footer.setObjectName("appFooter")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(18, 5, 18, 5)
+        footer_layout.setSpacing(8)
         self.status_label = QLabel("准备就绪")
         self.status_label.setObjectName("statusLabel")
-        root_layout.addWidget(self.status_label)
+        self.footer_context_label = QLabel("模型：待计算")
+        self.footer_context_label.setObjectName("footerContext")
+        footer_layout.addWidget(self.status_label)
+        footer_layout.addStretch()
+        footer_layout.addWidget(self.footer_context_label)
+        root_layout.addWidget(footer)
 
         self.setCentralWidget(root)
         self._connect_input_change_handlers()
         self._apply_styles()
 
-    def _build_base_group(self) -> QGroupBox:
-        group = QGroupBox("基础参数")
-        layout = QFormLayout(group)
-
-        fields = [
-            ("frequency_mhz", "工作频率 MHz", 100.0, 1000.0, 1.0),
-            ("tx_power_dbm", "发射功率 dBm", -20.0, 120.0, 1.0),
-            ("base_antenna_gain_dbi", "基站天线增益 dBi", -20.0, 80.0, 0.5),
-            ("feeder_loss_db", "馈线损耗 dB", 0.0, 80.0, 0.5),
-            ("connector_loss_db", "接头损耗 dB", 0.0, 80.0, 0.5),
-            ("mobile_antenna_gain_dbi", "手台天线增益 dBi", -20.0, 30.0, 0.5),
-            ("receiver_sensitivity_dbm", "接收灵敏度 dBm", -150.0, -1.0, 1.0),
-            ("base_height_m", "基站高度 m", 0.1, 200.0, 0.5),
-            ("mobile_height_m", "手台高度 m", 0.1, 20.0, 0.1),
-            ("engineering_margin_db", "工程裕度 dB", 0.0, 80.0, 0.5),
-        ]
-        for key, label, minimum, maximum, step in fields:
-            widget = self._spin_box(minimum, maximum, step)
-            self.base_fields[key] = widget
-            layout.addRow(label, widget)
-
-        return group
-
-    def _build_scenario_group(self) -> QGroupBox:
-        group = QGroupBox("场景参数")
-        layout = QVBoxLayout(group)
+    def _build_scenario_section(self) -> QWidget:
+        section = QWidget()
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(self._section_title("场景"))
 
         self.scenario_combo = QComboBox()
         for scenario_type, label in SCENARIO_LABELS.items():
             self.scenario_combo.addItem(label, scenario_type)
         self.scenario_combo.currentIndexChanged.connect(self._on_scenario_changed)
-        layout.addWidget(self.scenario_combo)
+        self.scenario_combo.setVisible(False)
+
+        segmented = QWidget()
+        segmented_layout = QHBoxLayout(segmented)
+        segmented_layout.setContentsMargins(0, 0, 0, 0)
+        segmented_layout.setSpacing(6)
+        scenario_group = QButtonGroup(self)
+        scenario_group.setExclusive(True)
+        for index, (scenario_type, label) in enumerate(SCENARIO_LABELS.items()):
+            scenario_button = QPushButton(label)
+            scenario_button.setObjectName("scenarioButton")
+            scenario_button.setCheckable(True)
+            scenario_button.setProperty("scenarioType", scenario_type)
+            scenario_button.clicked.connect(
+                lambda _checked=False, value=index: self.scenario_combo.setCurrentIndex(value)
+            )
+            scenario_group.addButton(scenario_button, index)
+            segmented_layout.addWidget(scenario_button)
+            self.scenario_buttons[scenario_type] = scenario_button
+        layout.addWidget(segmented)
 
         example_layout = QHBoxLayout()
+        example_layout.setSpacing(8)
         self.example_combo = QComboBox()
         for scenario_type, (label, _) in EXAMPLE_CASES.items():
             self.example_combo.addItem(label, scenario_type)
         self.example_combo.currentIndexChanged.connect(self._on_example_selected)
         self.load_example_button = QPushButton("加载算例")
+        self.load_example_button.setObjectName("compactButton")
         self.load_example_button.clicked.connect(self._load_selected_example)
         example_layout.addWidget(self.example_combo)
         example_layout.addWidget(self.load_example_button)
         layout.addLayout(example_layout)
+        return section
+
+    def _build_base_section(self) -> QWidget:
+        section = QWidget()
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(self._section_title("基础参数"))
+
+        wireless_form = self._form_layout()
+        wireless_fields = [
+            ("frequency_mhz", "工作频率", 100.0, 1000.0, 1.0, "MHz"),
+            ("tx_power_dbm", "发射功率", -20.0, 120.0, 1.0, "dBm"),
+            ("base_antenna_gain_dbi", "基站天线增益", -20.0, 80.0, 0.5, "dBi"),
+            ("feeder_loss_db", "馈线损耗", 0.0, 80.0, 0.5, "dB"),
+            ("connector_loss_db", "接头损耗", 0.0, 80.0, 0.5, "dB"),
+            ("mobile_antenna_gain_dbi", "手台天线增益", -20.0, 30.0, 0.5, "dBi"),
+            ("receiver_sensitivity_dbm", "接收灵敏度", -150.0, -1.0, 1.0, "dBm"),
+        ]
+        self._add_fields(wireless_form, wireless_fields)
+        layout.addLayout(wireless_form)
+
+        layout.addWidget(self._subsection_title("高度与工程"))
+        engineering_form = self._form_layout()
+        engineering_fields = [
+            ("base_height_m", "基站高度", 0.1, 200.0, 0.5, "m"),
+            ("mobile_height_m", "手台高度", 0.1, 20.0, 0.1, "m"),
+            ("engineering_margin_db", "工程裕度", 0.0, 80.0, 0.5, "dB"),
+        ]
+        self._add_fields(engineering_form, engineering_fields)
+        layout.addLayout(engineering_form)
+        return section
+
+    def _build_scenario_parameters_section(self) -> QWidget:
+        section = QWidget()
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addWidget(self._section_title("场景参数"))
 
         self.scenario_stack = QStackedWidget()
         for scenario_type in SCENARIO_LABELS:
             page = QWidget()
-            form = QFormLayout(page)
+            form = self._form_layout(page)
             self.scenario_fields[scenario_type] = {}
             for key, value in self.config["scenario_defaults"][scenario_type].items():
                 widget = self._spin_box(0.0, 10000.0, 0.5)
@@ -181,67 +299,211 @@ class MainWindow(QMainWindow):
                 form.addRow(SCENARIO_PARAM_LABELS.get(key, key), widget)
             self.scenario_stack.addWidget(page)
         layout.addWidget(self.scenario_stack)
+        return section
 
-        return group
-
-    def _build_summary_group(self) -> QGroupBox:
-        group = QGroupBox("计算结果")
-        layout = QGridLayout(group)
+    def _build_metric_cards(self) -> QWidget:
+        container = QWidget()
+        layout = QGridLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        self.metric_layout = layout
         items = [
-            ("coverage_distance_m", "最大覆盖距离"),
-            ("coverage_level", "覆盖等级"),
-            ("model_name", "传播模型"),
-            ("eirp_dbm", "EIRP"),
-            ("max_path_loss_db", "最大允许路径损耗"),
-            ("boundary_rssi_dbm", "边界 RSSI"),
+            ("coverage_distance_m", "最大覆盖距离", "#1769aa", "覆盖边界"),
+            ("coverage_level", "覆盖等级", "#2d8a57", "设计评价"),
+            ("max_path_loss_db", "最大路径损耗", "#d09022", "含工程裕度"),
+            ("boundary_rssi_dbm", "边界 RSSI", "#c74343", "接收电平"),
         ]
-        for row, (key, label_text) in enumerate(items):
-            label = QLabel(label_text)
+        for index, (key, title, accent, note) in enumerate(items):
+            card = QFrame()
+            card.setObjectName("metricCard")
+            card_layout = QHBoxLayout(card)
+            card_layout.setContentsMargins(0, 0, 14, 0)
+            card_layout.setSpacing(12)
+            accent_bar = QFrame()
+            accent_bar.setFixedWidth(4)
+            accent_bar.setStyleSheet(f"background: {accent}; border-radius: 2px;")
+            card_layout.addWidget(accent_bar)
+            text_layout = QVBoxLayout()
+            text_layout.setContentsMargins(0, 12, 0, 10)
+            text_layout.setSpacing(2)
+            title_label = QLabel(title)
+            title_label.setObjectName("metricTitle")
             value = QLabel("-")
-            value.setObjectName("resultValue")
+            value.setObjectName("metricValue")
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            note_label = QLabel(note)
+            note_label.setObjectName("metricNote")
             self.result_labels[key] = value
-            layout.addWidget(label, row, 0)
-            layout.addWidget(value, row, 1)
-        return group
+            text_layout.addWidget(title_label)
+            text_layout.addWidget(value)
+            text_layout.addWidget(note_label)
+            card_layout.addLayout(text_layout, stretch=1)
+            self.metric_cards.append(card)
+            layout.addWidget(card, 0, index)
+        return container
 
-    def _build_steps_group(self) -> QGroupBox:
-        group = QGroupBox("计算过程")
-        layout = QVBoxLayout(group)
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        columns = 2 if event.size().width() < 1180 else 4
+        if columns == self.metric_columns or not hasattr(self, "metric_layout"):
+            return
+        self.metric_columns = columns
+        for card in self.metric_cards:
+            self.metric_layout.removeWidget(card)
+        for index, card in enumerate(self.metric_cards):
+            self.metric_layout.addWidget(card, index // columns, index % columns)
 
-        self.steps_table = QTableWidget(0, 4)
-        self.steps_table.setHorizontalHeaderLabels(["步骤", "公式", "代入", "结果"])
-        self.steps_table.horizontalHeader().setStretchLastSection(True)
-        self.steps_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        layout.addWidget(self.steps_table, stretch=2)
+    def _ensure_ui_font(self) -> None:
+        global UI_FONT_LOADED
+        if UI_FONT_LOADED:
+            return
+        font_path = Path(r"C:\Windows\Fonts\msyh.ttc")
+        if font_path.exists():
+            font_id = QFontDatabase.addApplicationFont(str(font_path))
+            families = QFontDatabase.applicationFontFamilies(font_id)
+            if families and QApplication.instance() is not None:
+                QApplication.instance().setFont(QFont(families[0], 10))
+        UI_FONT_LOADED = True
 
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        layout.addWidget(separator)
+    def _build_context_strip(self) -> QFrame:
+        strip = QFrame()
+        strip.setObjectName("contextStrip")
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(8)
+        layout.addWidget(self._context_label("传播模型"))
+        model_value = QLabel("-")
+        model_value.setObjectName("contextValue")
+        self.result_labels["model_name"] = model_value
+        layout.addWidget(model_value)
+        layout.addSpacing(18)
+        layout.addWidget(self._context_label("EIRP"))
+        eirp_value = QLabel("-")
+        eirp_value.setObjectName("contextValue")
+        self.result_labels["eirp_dbm"] = eirp_value
+        layout.addWidget(eirp_value)
+        layout.addStretch()
+        self.result_state_label = QLabel("等待计算")
+        self.result_state_label.setObjectName("resultState")
+        layout.addWidget(self.result_state_label)
+        return strip
 
-        self.warning_text = QTextEdit()
-        self.warning_text.setReadOnly(True)
-        self.warning_text.setPlaceholderText("计算提示和告警")
-        self.warning_text.setMaximumHeight(110)
-        layout.addWidget(self.warning_text)
+    def _build_charts_panel(self) -> QWidget:
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
 
-        return group
-
-    def _build_charts_group(self) -> QGroupBox:
-        group = QGroupBox("覆盖曲线")
-        layout = QVBoxLayout(group)
-
-        self.chart_tabs = QTabWidget()
         self.path_loss_figure = Figure(figsize=(5, 3), tight_layout=True)
         self.path_loss_canvas = FigureCanvasQTAgg(self.path_loss_figure)
         self.rssi_figure = Figure(figsize=(5, 3), tight_layout=True)
         self.rssi_canvas = FigureCanvasQTAgg(self.rssi_figure)
-        self.chart_tabs.addTab(self.path_loss_canvas, "Path Loss")
-        self.chart_tabs.addTab(self.rssi_canvas, "RSSI")
-        layout.addWidget(self.chart_tabs)
-
+        layout.addWidget(
+            self._chart_panel("Path Loss 曲线", "路径损耗随距离变化", self.path_loss_canvas),
+            stretch=1,
+        )
+        layout.addWidget(
+            self._chart_panel("RSSI 曲线", "接收电平随距离变化", self.rssi_canvas),
+            stretch=1,
+        )
         self._plot_empty_charts()
-        return group
+        return container
+
+    def _build_steps_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("contentPanel")
+        panel.setMinimumHeight(210)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        title = QLabel("计算过程")
+        title.setObjectName("panelTitle")
+        self.iteration_label = QLabel("等待计算")
+        self.iteration_label.setObjectName("panelMeta")
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(self.iteration_label)
+        layout.addLayout(header)
+
+        self.steps_table = QTableWidget(0, 4)
+        self.steps_table.setHorizontalHeaderLabels(["步骤", "公式", "代入", "结果"])
+        self.steps_table.setObjectName("stepsTable")
+        self.steps_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.steps_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.steps_table.setAlternatingRowColors(False)
+        self.steps_table.verticalHeader().setVisible(False)
+        self.steps_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.steps_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.steps_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.steps_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.steps_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.steps_table, stretch=2)
+
+        self.warning_text = QTextEdit()
+        self.warning_text.setReadOnly(True)
+        self.warning_text.setObjectName("warningText")
+        self.warning_text.setPlaceholderText("计算提示")
+        self.warning_text.setMaximumHeight(58)
+        layout.addWidget(self.warning_text)
+        return panel
+
+    def _chart_panel(self, title: str, subtitle: str, canvas: FigureCanvasQTAgg) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("contentPanel")
+        panel.setMinimumHeight(260)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 12, 14, 10)
+        layout.setSpacing(2)
+        title_label = QLabel(title)
+        title_label.setObjectName("panelTitle")
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setObjectName("panelMeta")
+        layout.addWidget(title_label)
+        layout.addWidget(subtitle_label)
+        layout.addWidget(canvas, stretch=1)
+        return panel
+
+    def _section_title(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("sectionTitle")
+        return label
+
+    def _subsection_title(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("subsectionTitle")
+        return label
+
+    def _context_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("contextLabel")
+        return label
+
+    def _divider(self) -> QFrame:
+        divider = QFrame()
+        divider.setObjectName("divider")
+        divider.setFrameShape(QFrame.HLine)
+        return divider
+
+    def _form_layout(self, parent: QWidget | None = None) -> QFormLayout:
+        form = QFormLayout(parent)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(10)
+        form.setVerticalSpacing(8)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        return form
+
+    def _add_fields(
+        self,
+        form: QFormLayout,
+        fields: list[tuple[str, str, float, float, float, str]],
+    ) -> None:
+        for key, label, minimum, maximum, step, unit in fields:
+            widget = self._spin_box(minimum, maximum, step, unit)
+            self.base_fields[key] = widget
+            form.addRow(label, widget)
 
     def _populate_defaults(self) -> None:
         for section in ("wireless", "height"):
@@ -251,15 +513,20 @@ class MainWindow(QMainWindow):
             float(self.config["engineering_margin_db"])
         )
         self._on_scenario_changed()
+        self.result_state_label.setText("等待计算")
+        self.status_label.setText("已恢复默认参数")
+        self.footer_context_label.setText("模型：待计算")
 
     def _on_scenario_changed(self) -> None:
         self.scenario_stack.setCurrentIndex(self.scenario_combo.currentIndex())
         scenario_type = self.scenario_combo.currentData()
+        self.scenario_buttons[scenario_type].setChecked(True)
         example_index = self.example_combo.findData(scenario_type)
         if example_index >= 0:
             self.example_combo.blockSignals(True)
             self.example_combo.setCurrentIndex(example_index)
             self.example_combo.blockSignals(False)
+        self.current_case_label.setText(EXAMPLE_CASES[scenario_type][0])
         self._invalidate_report_data()
 
     def _on_example_selected(self) -> None:
@@ -270,12 +537,15 @@ class MainWindow(QMainWindow):
             self.scenario_combo.setCurrentIndex(scenario_index)
             self.scenario_stack.setCurrentIndex(scenario_index)
             self.scenario_combo.blockSignals(False)
+            self.scenario_buttons[scenario_type].setChecked(True)
+        self.current_case_label.setText(self.example_combo.currentText())
         self._invalidate_report_data()
 
     def _load_selected_example(self) -> None:
         input_data = load_example_input(EXAMPLES_DIR, self.example_combo.currentData())
         self._apply_input_data(input_data)
         self._invalidate_report_data()
+        self.current_case_label.setText(self.example_combo.currentText())
         self.status_label.setText("已加载标准算例")
 
     def _calculate(self) -> None:
@@ -330,6 +600,7 @@ class MainWindow(QMainWindow):
         message = "\n".join(errors)
         self.warning_text.setPlainText(message)
         self.status_label.setText("输入参数有误")
+        self.result_state_label.setText("输入有误")
         QMessageBox.warning(self, "输入参数有误", message)
 
     def _show_result(self, serialized: dict) -> None:
@@ -362,6 +633,13 @@ class MainWindow(QMainWindow):
 
         warnings = summary["warnings"]
         self.warning_text.setPlainText("\n".join(warnings) if warnings else "无告警")
+        self.iteration_label.setText(
+            f"{len(serialized['details']['iteration_steps'])} 次迭代"
+        )
+        self.result_state_label.setText("计算完成")
+        self.footer_context_label.setText(
+            f"模型：{summary['model_name']} · {serialized['input']['frequency_mhz']:.0f} MHz"
+        )
         self._plot_charts(serialized["charts"])
 
     def _export_report(self, report_type: str) -> None:
@@ -410,27 +688,32 @@ class MainWindow(QMainWindow):
     def _invalidate_report_data(self, *_unused: object) -> None:
         self.current_report_data = None
         self._set_export_buttons_enabled(False)
+        if hasattr(self, "result_state_label"):
+            self.result_state_label.setText("参数已更新")
+        if hasattr(self, "status_label"):
+            self.status_label.setText("参数已更新，请重新计算")
 
     def _set_export_buttons_enabled(self, enabled: bool) -> None:
-        self.export_word_button.setEnabled(enabled)
-        self.export_pdf_button.setEnabled(enabled)
+        self.export_button.setEnabled(enabled)
+        self.export_word_action.setEnabled(enabled)
+        self.export_pdf_action.setEnabled(enabled)
 
     def _plot_empty_charts(self) -> None:
         self._draw_chart(
             self.path_loss_figure,
             self.path_loss_canvas,
-            title="Path Loss - Distance",
             x_values=[],
             y_values=[],
             y_label="Path Loss (dB)",
+            line_color="#1769aa",
         )
         self._draw_chart(
             self.rssi_figure,
             self.rssi_canvas,
-            title="RSSI - Distance",
             x_values=[],
             y_values=[],
             y_label="RSSI (dBm)",
+            line_color="#2d8a57",
         )
 
     def _plot_charts(self, charts: dict) -> None:
@@ -438,20 +721,20 @@ class MainWindow(QMainWindow):
         self._draw_chart(
             self.path_loss_figure,
             self.path_loss_canvas,
-            title="Path Loss - Distance",
             x_values=series["distance_m"],
             y_values=series["path_loss_db"],
             y_label="Path Loss (dB)",
+            line_color="#1769aa",
             boundary_x=series["boundary_distance_m"],
             boundary_y=series["boundary_path_loss_db"],
         )
         self._draw_chart(
             self.rssi_figure,
             self.rssi_canvas,
-            title="RSSI - Distance",
             x_values=series["distance_m"],
             y_values=series["rssi_dbm"],
             y_label="RSSI (dBm)",
+            line_color="#2d8a57",
             boundary_x=series["boundary_distance_m"],
             boundary_y=series["boundary_rssi_dbm"],
         )
@@ -461,41 +744,67 @@ class MainWindow(QMainWindow):
         figure: Figure,
         canvas: FigureCanvasQTAgg,
         *,
-        title: str,
         x_values: list[float],
         y_values: list[float],
         y_label: str,
+        line_color: str,
         boundary_x: float | None = None,
         boundary_y: float | None = None,
     ) -> None:
         figure.clear()
+        figure.patch.set_facecolor("#ffffff")
         axis = figure.add_subplot(111)
-        axis.set_title(title)
+        axis.set_facecolor("#ffffff")
         axis.set_xlabel("Distance (m)")
         axis.set_ylabel(y_label)
-        axis.grid(True, linestyle="--", alpha=0.35)
+        axis.grid(True, color="#e5eaee", linestyle="-", linewidth=0.8)
+        axis.tick_params(axis="both", colors="#667681", labelsize=8)
+        axis.xaxis.label.set_color("#667681")
+        axis.yaxis.label.set_color("#667681")
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+        axis.spines["left"].set_color("#9aa8b2")
+        axis.spines["bottom"].set_color("#9aa8b2")
 
         if x_values and y_values:
-            axis.plot(x_values, y_values, color="#1769aa", linewidth=1.8)
+            axis.plot(x_values, y_values, color=line_color, linewidth=2.0)
+        else:
+            axis.text(
+                0.5,
+                0.5,
+                "Waiting for calculation",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                color="#8a98a3",
+                fontsize=10,
+            )
         if boundary_x is not None and boundary_y is not None:
-            axis.axvline(boundary_x, color="#c62828", linestyle="--", linewidth=1.1)
-            axis.scatter([boundary_x], [boundary_y], color="#c62828", zorder=3)
-            axis.annotate(
-                "Boundary",
-                xy=(boundary_x, boundary_y),
-                xytext=(8, 8),
-                textcoords="offset points",
+            axis.axvline(boundary_x, color="#c74343", linestyle="--", linewidth=1.2)
+            axis.scatter([boundary_x], [boundary_y], color="#c74343", zorder=3)
+            axis.text(
+                0.98,
+                0.96,
+                "Coverage boundary",
+                transform=axis.transAxes,
+                horizontalalignment="right",
+                verticalalignment="top",
                 fontsize=9,
-                color="#c62828",
+                color="#c74343",
             )
 
         canvas.draw_idle()
 
-    def _spin_box(self, minimum: float, maximum: float, step: float) -> QDoubleSpinBox:
+    def _spin_box(
+        self, minimum: float, maximum: float, step: float, unit: str = ""
+    ) -> QDoubleSpinBox:
         widget = QDoubleSpinBox()
         widget.setRange(minimum, maximum)
         widget.setDecimals(3)
         widget.setSingleStep(step)
+        if unit:
+            widget.setSuffix(f" {unit}")
+        widget.setKeyboardTracking(False)
         widget.setAlignment(Qt.AlignRight)
         return widget
 
@@ -504,33 +813,253 @@ class MainWindow(QMainWindow):
             """
             QWidget {
                 font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+                font-size: 12px;
+                color: #1d2b35;
+            }
+            #appRoot, #resultScroll, #resultPanel {
+                background: #f3f5f6;
+            }
+            #appHeader {
+                background: #ffffff;
+                border-bottom: 1px solid #d7dee3;
+            }
+            #brandMark {
+                background: #1769aa;
+                color: #ffffff;
+                border-radius: 6px;
                 font-size: 13px;
+                font-weight: 700;
             }
             #titleLabel {
-                font-size: 20px;
-                font-weight: 600;
+                font-size: 17px;
+                font-weight: 700;
             }
-            #subtitleLabel, #statusLabel {
-                color: #59636e;
+            #subtitleLabel {
+                color: #687681;
+                font-size: 10px;
             }
-            QGroupBox {
-                font-weight: 600;
-                border: 1px solid #c8d0d8;
-                border-radius: 6px;
-                margin-top: 12px;
-                padding: 10px;
+            #caseLabel {
+                color: #52616d;
+                padding-right: 10px;
             }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 4px;
-            }
-            QPushButton {
-                min-width: 96px;
+            QPushButton, QToolButton {
                 min-height: 32px;
+                padding: 0 13px;
+                border-radius: 5px;
+                font-weight: 500;
             }
-            #resultValue {
-                font-weight: 600;
+            #primaryButton {
+                min-width: 96px;
+                background: #1769aa;
+                color: #ffffff;
+                border: 1px solid #1769aa;
+                font-weight: 700;
+            }
+            #primaryButton:hover {
+                background: #125b95;
+                border-color: #125b95;
+            }
+            #primaryButton:pressed {
+                background: #0f4d7e;
+            }
+            #secondaryButton, #compactButton {
+                background: #ffffff;
+                color: #33424d;
+                border: 1px solid #cfd8df;
+            }
+            #secondaryButton:hover, #compactButton:hover {
+                background: #f4f7f9;
+                border-color: #9eb0bc;
+            }
+            #secondaryButton:disabled {
+                color: #9aa7b0;
+                background: #f2f4f5;
+                border-color: #dce2e6;
+            }
+            #compactButton {
+                min-width: 72px;
+                padding: 0 10px;
+            }
+            QMenu {
+                background: #ffffff;
+                border: 1px solid #cfd8df;
+                padding: 5px;
+            }
+            QMenu::item {
+                min-width: 120px;
+                padding: 7px 22px 7px 10px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #e8f2fa;
+                color: #1769aa;
+            }
+            #inputScroll, #inputPanel {
+                background: #ffffff;
+                border: none;
+            }
+            #inputScroll {
+                border-right: 1px solid #d9e0e5;
+            }
+            #sectionTitle {
+                font-size: 13px;
+                font-weight: 700;
+                color: #1d2b35;
+            }
+            #subsectionTitle {
+                font-size: 11px;
+                font-weight: 700;
+                color: #50606b;
+                padding-top: 5px;
+            }
+            #divider {
+                color: #e1e6e9;
+                background: #e1e6e9;
+                max-height: 1px;
+                border: none;
+            }
+            #scenarioButton {
+                min-width: 0;
+                min-height: 30px;
+                padding: 0 8px;
+                background: #f6f7f8;
+                color: #5d6a74;
+                border: 1px solid #e0e5e8;
+                border-radius: 4px;
+            }
+            #scenarioButton:hover {
+                border-color: #b8cad7;
+            }
+            #scenarioButton:checked {
+                background: #e8f2fa;
+                color: #1769aa;
+                border-color: #b8d4e8;
+                font-weight: 700;
+            }
+            QComboBox, QDoubleSpinBox {
+                min-height: 31px;
+                background: #ffffff;
+                color: #1f2d37;
+                border: 1px solid #d3dbe2;
+                border-radius: 4px;
+                padding: 0 8px;
+                selection-background-color: #dcecf8;
+            }
+            QComboBox:hover, QDoubleSpinBox:hover {
+                border-color: #9eb4c3;
+            }
+            QComboBox:focus, QDoubleSpinBox:focus {
+                border: 1px solid #1769aa;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background: #ffffff;
+                border: 1px solid #cfd8df;
+                selection-background-color: #e8f2fa;
+                selection-color: #1769aa;
+                outline: none;
+            }
+            #metricCard, #contentPanel {
+                background: #ffffff;
+                border: 1px solid #dce3e8;
+                border-radius: 6px;
+            }
+            #metricCard {
+                min-height: 84px;
+            }
+            #metricTitle, #metricNote, #panelMeta, #contextLabel {
+                color: #687681;
+            }
+            #metricTitle, #metricNote, #panelMeta {
+                font-size: 10px;
+            }
+            #metricValue {
+                color: #14212b;
+                font-size: 20px;
+                font-weight: 700;
+            }
+            #contextStrip {
+                background: #eef2f4;
+                border: 1px solid #dde4e8;
+                border-radius: 5px;
+            }
+            #contextValue {
+                color: #263640;
+                font-weight: 700;
+            }
+            #resultState {
+                background: #e7f4ec;
+                color: #2d7b50;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-weight: 700;
+            }
+            #panelTitle {
+                color: #17242e;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            #stepsTable {
+                background: #ffffff;
+                alternate-background-color: #ffffff;
+                border: none;
+                gridline-color: #edf0f2;
+                selection-background-color: #e8f2fa;
+                selection-color: #1d2b35;
+            }
+            #stepsTable::item {
+                padding: 6px;
+                border-bottom: 1px solid #edf0f2;
+            }
+            QHeaderView::section {
+                background: #f3f5f6;
+                color: #65737e;
+                border: none;
+                border-bottom: 1px solid #dce3e8;
+                padding: 7px;
+                font-weight: 700;
+            }
+            #warningText {
+                background: #f1f7f4;
+                color: #2d7b50;
+                border: 1px solid #d8ebe0;
+                border-radius: 4px;
+                padding: 5px 8px;
+            }
+            #appFooter {
+                background: #eef2f4;
+                border-top: 1px solid #dce3e8;
+            }
+            #statusLabel {
+                color: #2d8a57;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            #footerContext {
+                color: #677681;
+                font-size: 10px;
+            }
+            QScrollBar:vertical {
+                width: 10px;
+                background: transparent;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical {
+                min-height: 28px;
+                background: #c8d2d9;
+                border-radius: 4px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0;
+            }
+            QToolTip {
+                color: #ffffff;
+                background: #26343d;
+                border: 1px solid #26343d;
+                padding: 5px;
             }
             """
         )

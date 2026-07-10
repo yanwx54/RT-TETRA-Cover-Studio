@@ -44,8 +44,9 @@ class GuiExportTest(unittest.TestCase):
             window._calculate()
 
             self.assertIsNotNone(window.current_report_data)
-            self.assertTrue(window.export_word_button.isEnabled())
-            self.assertTrue(window.export_pdf_button.isEnabled())
+            self.assertTrue(window.export_button.isEnabled())
+            self.assertTrue(window.export_word_action.isEnabled())
+            self.assertTrue(window.export_pdf_action.isEnabled())
 
             main_window_module.QFileDialog.getSaveFileName = _save_path(word_path)
             window._export_report("word")
@@ -62,6 +63,19 @@ class GuiExportTest(unittest.TestCase):
         self.assertTrue(pdf_path.exists())
         self.assertGreater(pdf_path.stat().st_size, 0)
         self.assertEqual([message[0] for message in messages], ["导出完成", "导出完成"])
+
+    def test_segmented_scenario_button_switches_parameter_page(self) -> None:
+        window = MainWindow()
+        try:
+            window.scenario_buttons["tunnel"].click()
+            self.app.processEvents()
+
+            self.assertEqual(window.scenario_combo.currentData(), "tunnel")
+            self.assertEqual(window.scenario_stack.currentIndex(), 1)
+            self.assertTrue(window.scenario_buttons["tunnel"].isChecked())
+            self.assertEqual(window.current_case_label.text(), "隧道区间标准算例")
+        finally:
+            window.close()
 
 
 def _save_path(path: Path):
