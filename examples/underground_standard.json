@@ -24,7 +24,9 @@
     "scenario_params": {
       "distance_power_loss_coefficient": 40.0,
       "wall_loss_db": 0.0,
-      "floor_loss_db": 0.0
+      "floor_loss_db": 0.0,
+      "calibration_status": "unverified",
+      "calibration_source": "V1.0 ITU-R P.1238 标准算例"
     }
   },
   "expected": {

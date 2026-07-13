@@ -6,8 +6,8 @@
 | --- | --- | --- |
 | `underground_standard.json` | 地下站厅 | ITU Indoor |
 | `tunnel_standard.json` | 隧道区间 | Tunnel Model |
-| `ground_standard.json` | 地面区段 | COST231-Walfisch-Ikegami |
-| `viaduct_standard.json` | 高架区段 | COST231-WI + 高架修正 |
+| `ground_standard.json` | 400 MHz 地面区段 | Low-Band Calibrated Ground |
+| `viaduct_standard.json` | 400 MHz 高架区段 | Low-Band Calibrated Ground + Viaduct Calibration |
 
 每个算例包含：
 

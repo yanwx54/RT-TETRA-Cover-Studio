@@ -23,7 +23,7 @@ class CalculationInput:
     base_height_m: float
     mobile_height_m: float
     scenario_type: str
-    scenario_params: dict[str, float] = field(default_factory=dict)
+    scenario_params: dict[str, float | str] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class CalculationStep:
@@ -69,7 +69,7 @@ class PropagationResult:
     distance_m: float
     path_loss_db: float
     formula_source: str
-    intermediate_values: dict[str, float]
+    intermediate_values: dict[str, float | str]
 
 
 @dataclass(frozen=True)

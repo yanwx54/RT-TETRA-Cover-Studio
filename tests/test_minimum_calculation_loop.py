@@ -48,6 +48,9 @@ def tunnel_input() -> CalculationInput:
                 "tunnel_width_m": 6.0,
                 "tunnel_height_m": 5.5,
                 "alpha_db_per_km": 8.0,
+                "section_correction_db": 9.0,
+                "calibration_status": "unverified",
+                "calibration_source": "test fixture",
             },
         }
     )
@@ -57,12 +60,20 @@ def ground_input() -> CalculationInput:
     return CalculationInput(
         **{
             **sample_input().__dict__,
+            "frequency_mhz": 900.0,
             "base_height_m": 25.0,
             "scenario_type": "ground",
             "scenario_params": {
+                "ground_model": "cost231_wi",
+                "propagation_condition": "nlos",
+                "city_type": "medium",
                 "building_height_m": 18.0,
                 "building_spacing_m": 40.0,
                 "street_width_m": 20.0,
+                "street_orientation_deg": 30.0,
+                "model_correction_db": 0.0,
+                "calibration_status": "unverified",
+                "calibration_source": "test fixture",
             },
         }
     )
@@ -71,14 +82,23 @@ def ground_input() -> CalculationInput:
 def viaduct_input() -> CalculationInput:
     return CalculationInput(
         **{
-            **ground_input().__dict__,
+            **sample_input().__dict__,
             "scenario_type": "viaduct",
             "scenario_params": {
+                "ground_model": "low_band",
+                "reference_distance_m": 10.0,
+                "path_loss_exponent": 3.2,
+                "model_correction_db": 0.0,
+                "calibration_min_distance_m": 10.0,
+                "calibration_max_distance_m": 5000.0,
+                "calibration_status": "unverified",
+                "calibration_source": "test fixture",
                 "building_height_m": 18.0,
                 "building_spacing_m": 40.0,
                 "street_width_m": 20.0,
                 "viaduct_height_m": 12.0,
                 "curve_radius_m": 600.0,
+                "viaduct_correction_db": -2.17,
             },
         }
     )
@@ -137,7 +157,10 @@ class MinimumCalculationLoopTest(unittest.TestCase):
 
         result = model.calculate_path_loss(input_data, 1000.0)
 
-        self.assertEqual(result.model_name, "COST231-WI + Viaduct Correction")
+        self.assertEqual(
+            result.model_name,
+            "Low-Band Calibrated Ground + Viaduct Calibration",
+        )
         self.assertIn("viaduct_correction_db", result.intermediate_values)
 
     def test_calculate_coverage_minimum_loop(self) -> None:
@@ -158,7 +181,7 @@ class MinimumCalculationLoopTest(unittest.TestCase):
             ("ITU Indoor", sample_input()),
             ("Tunnel Model", tunnel_input()),
             ("COST231-Walfisch-Ikegami", ground_input()),
-            ("COST231-WI + Viaduct Correction", viaduct_input()),
+            ("Low-Band Calibrated Ground + Viaduct Calibration", viaduct_input()),
         ]
 
         for expected_model_name, input_data in cases:

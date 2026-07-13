@@ -14,7 +14,7 @@ from .models import (
     LinkBudgetResult,
     PropagationResult,
 )
-from .propagation import get_model
+from .propagation import get_model, model_distance_bounds
 from .validation import validate_input
 
 
@@ -131,26 +131,38 @@ def calculate_coverage(
         raise ValueError("; ".join(errors))
 
     link_budget = calculate_link_budget(input_data)
-    model = get_model(input_data.scenario_type)
+    model = get_model(input_data)
     warnings: list[str] = []
+    model_min_distance_m, model_max_distance_m = model_distance_bounds(input_data)
+    search_min_distance_m = max(min_distance_m, model_min_distance_m)
+    search_max_distance_m = min(max_distance_m, model_max_distance_m)
+    if search_min_distance_m >= search_max_distance_m:
+        raise ValueError("计算距离范围与传播模型适用范围没有交集。")
+    if search_min_distance_m != min_distance_m or search_max_distance_m != max_distance_m:
+        warnings.append(
+            "搜索距离已限制在模型适用范围 "
+            f"{search_min_distance_m:.1f} 至 {search_max_distance_m:.1f} m。"
+        )
+    if input_data.scenario_params.get("calibration_status") == "unverified":
+        warnings.append("当前模型参数未经现场数据校准，结果仅用于初步估算。")
 
-    low_loss = model.calculate_path_loss(input_data, min_distance_m).path_loss_db
-    high_loss = model.calculate_path_loss(input_data, max_distance_m).path_loss_db
+    low_loss = model.calculate_path_loss(input_data, search_min_distance_m).path_loss_db
+    high_loss = model.calculate_path_loss(input_data, search_max_distance_m).path_loss_db
 
     if low_loss > link_budget.max_path_loss_db:
-        coverage_distance_m = min_distance_m
+        coverage_distance_m = search_min_distance_m
         warnings.append("最小计算距离已超过最大允许路径损耗。")
-        iteration_steps = [IterationStep(0, min_distance_m, low_loss)]
+        iteration_steps = [IterationStep(0, search_min_distance_m, low_loss)]
     elif high_loss <= link_budget.max_path_loss_db:
-        coverage_distance_m = max_distance_m
-        warnings.append("覆盖距离达到最大搜索上限。")
-        iteration_steps = [IterationStep(0, max_distance_m, high_loss)]
+        coverage_distance_m = search_max_distance_m
+        warnings.append("覆盖距离达到模型或搜索距离上限。")
+        iteration_steps = [IterationStep(0, search_max_distance_m, high_loss)]
     else:
         coverage_distance_m, iteration_steps = _solve_coverage_distance(
             input_data=input_data,
             max_path_loss_db=link_budget.max_path_loss_db,
-            min_distance_m=min_distance_m,
-            max_distance_m=max_distance_m,
+            min_distance_m=search_min_distance_m,
+            max_distance_m=search_max_distance_m,
             tolerance_m=tolerance_m,
             max_iterations=max_iterations,
         )
@@ -165,14 +177,18 @@ def calculate_coverage(
     return CalculationResult(
         input=input_data,
         link_budget=link_budget,
-        model_name=model.name,
+        model_name=boundary.model_name,
         coverage_distance_m=coverage_distance_m,
         coverage_level=_coverage_level(boundary_rssi_dbm),
         boundary_path_loss_db=boundary.path_loss_db,
         boundary_rssi_dbm=boundary_rssi_dbm,
         iteration_steps=iteration_steps,
         curve_points=_build_curve_points(
-            input_data, link_budget.base_eirp_dbm, coverage_distance_m, curve_points
+            input_data,
+            link_budget.base_eirp_dbm,
+            coverage_distance_m,
+            curve_points,
+            search_min_distance_m,
         ),
         calculation_steps=link_budget.steps,
         calculation_sections=_build_calculation_sections(
@@ -195,7 +211,7 @@ def _solve_coverage_distance(
     tolerance_m: float,
     max_iterations: int,
 ) -> tuple[float, list[IterationStep]]:
-    model = get_model(input_data.scenario_type)
+    model = get_model(input_data)
     low = min_distance_m
     high = max_distance_m
     steps: list[IterationStep] = []
@@ -221,14 +237,15 @@ def _build_curve_points(
     base_eirp_dbm: float,
     coverage_distance_m: float,
     point_count: int,
+    start_distance_m: float,
 ) -> list[CurvePoint]:
-    model = get_model(input_data.scenario_type)
+    model = get_model(input_data)
     safe_count = max(point_count, 2)
-    step_m = max(coverage_distance_m - 1.0, 1.0) / (safe_count - 1)
+    step_m = max(coverage_distance_m - start_distance_m, 0.0) / (safe_count - 1)
     points: list[CurvePoint] = []
 
     for index in range(safe_count):
-        distance_m = 1.0 + step_m * index
+        distance_m = start_distance_m + step_m * index
         path_loss_db = model.calculate_path_loss(input_data, distance_m).path_loss_db
         points.append(
             CurvePoint(
@@ -413,13 +430,23 @@ def _build_model_section(
     input_data: CalculationInput, boundary: PropagationResult
 ) -> CalculationSection:
     formulas = {
-        "underground": "L = 20log10(f_MHz) + Nlog10(d_m) + L_wall + L_floor - 28",
-        "tunnel": "L = FSPL + α × d_km + K_section + L_bend",
-        "ground": "L = L0 + Lrts + Lmsd",
-        "viaduct": "L = L_COST231-WI + K_viaduct",
+        "ITU Indoor": "L = 20log10(f_MHz) + Nlog10(d_m) + L_wall + L_floor - 28",
+        "Tunnel Model": (
+            "L = FSPL + αd_km + K_section + L_bend + L_train + K_cal"
+        ),
+        "Low-Band Calibrated Ground": (
+            "L = FSPL(f,d0) + 10nlog10(d/d0) + K_cal"
+        ),
+        "COST231-Walfisch-Ikegami": (
+            "LOS: L = 42.6 + 26log10(d_km) + 20log10(f_MHz); "
+            "NLOS: L = L0 + max(Lrts + Lmsd, 0); "
+            "Lrts = -16.9 - 10log10(w) + 10log10(f) + 20log10(Δhm) + Lori; "
+            "Lmsd = Lbsh + ka + kdlog10(d_km) + kflog10(f) - 9log10(b)"
+        ),
     }
     values = ", ".join(
-        f"{name}={value:.4f}" for name, value in boundary.intermediate_values.items()
+        f"{name}={value:.4f}" if isinstance(value, int | float) else f"{name}={value}"
+        for name, value in boundary.intermediate_values.items()
     )
     return CalculationSection(
         number=4,
@@ -428,7 +455,11 @@ def _build_model_section(
         details=[
             CalculationDetail(
                 name="核心公式与中间量",
-                formula=formulas[input_data.scenario_type],
+                formula=(
+                    "L = L_ground + K_viaduct + L_train + K_cal"
+                    if input_data.scenario_type == "viaduct"
+                    else formulas[boundary.model_name]
+                ),
                 substitution=(
                     f"f={input_data.frequency_mhz:.2f} MHz，d={boundary.distance_m:.1f} m；{values}"
                 ),

@@ -27,6 +27,47 @@ SCENARIO_PARAM_LABELS = {
     "street_width_m": "街道宽度 (m)",
     "viaduct_height_m": "高架高度 (m)",
     "curve_radius_m": "曲线半径 (m)",
+    "ground_model": "地面传播模型",
+    "propagation_condition": "传播条件",
+    "city_type": "城市类型",
+    "street_orientation_deg": "街道方向角 (degree)",
+    "model_correction_db": "模型修正 (dB)",
+    "reference_distance_m": "参考距离 (m)",
+    "path_loss_exponent": "路径损耗指数 n",
+    "calibration_min_distance_m": "标定最小距离 (m)",
+    "calibration_max_distance_m": "标定最大距离 (m)",
+    "calibration_status": "校准状态",
+    "calibration_source": "参数来源",
+    "section_correction_db": "截面修正 (dB)",
+    "train_blockage_loss_db": "列车遮挡损耗 (dB)",
+    "calibration_offset_db": "校准修正 (dB)",
+    "viaduct_correction_db": "高架综合修正 (dB)",
+}
+
+SCENARIO_PARAM_CHOICES = {
+    "ground_model": [
+        ("低频标定模型", "low_band"),
+        ("COST231-WI", "cost231_wi"),
+    ],
+    "propagation_condition": [("NLOS", "nlos"), ("LOS", "los")],
+    "city_type": [("中小城市/郊区", "medium"), ("大城市中心", "metropolitan")],
+    "calibration_status": [("未校准", "unverified"), ("已校准", "calibrated")],
+}
+
+LOW_BAND_ONLY_PARAMS = {
+    "reference_distance_m",
+    "path_loss_exponent",
+    "calibration_min_distance_m",
+    "calibration_max_distance_m",
+}
+
+COST231_ONLY_PARAMS = {
+    "propagation_condition",
+    "city_type",
+    "building_height_m",
+    "building_spacing_m",
+    "street_width_m",
+    "street_orientation_deg",
 }
 
 EXAMPLE_CASES = {
@@ -42,7 +83,7 @@ def build_input_data(
     config: dict[str, Any],
     scenario_type: str,
     field_values: dict[str, float],
-    scenario_values: dict[str, float],
+    scenario_values: dict[str, Any],
 ) -> CalculationInput:
     input_data = {
         **config["wireless"],
@@ -53,10 +94,21 @@ def build_input_data(
     }
     input_data.update(field_values)
     input_data["scenario_params"].update(scenario_values)
+    if scenario_type in {"ground", "viaduct"}:
+        selected_model = input_data["scenario_params"]["ground_model"]
+        unused_params = (
+            COST231_ONLY_PARAMS
+            if selected_model == "low_band"
+            else LOW_BAND_ONLY_PARAMS
+        )
+        for key in unused_params:
+            input_data["scenario_params"].pop(key, None)
     return calculation_input_from_dict(input_data)
 
 
-def split_input_for_fields(input_data: CalculationInput) -> tuple[dict[str, float], dict[str, float]]:
+def split_input_for_fields(
+    input_data: CalculationInput,
+) -> tuple[dict[str, float], dict[str, float | str]]:
     base_values = {
         "frequency_mhz": input_data.frequency_mhz,
         "base_tx_power_w": input_data.base_tx_power_w,

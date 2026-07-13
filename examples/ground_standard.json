@@ -1,7 +1,7 @@
 {
   "case_id": "V1-GROUND-001",
   "name": "地面区段标准算例",
-  "description": "用于验证 COST231-Walfisch-Ikegami 地面场景的标准输入。",
+  "description": "用于验证 400 MHz 低频地面标定模型的标准输入。",
   "input": {
     "frequency_mhz": 400.0,
     "base_tx_power_w": 25.0,
@@ -22,16 +22,27 @@
     "mobile_height_m": 1.5,
     "scenario_type": "ground",
     "scenario_params": {
+      "ground_model": "low_band",
+      "reference_distance_m": 10.0,
+      "path_loss_exponent": 3.5,
+      "model_correction_db": 0.0,
+      "calibration_min_distance_m": 10.0,
+      "calibration_max_distance_m": 5000.0,
+      "calibration_status": "unverified",
+      "calibration_source": "V1.0 低频地面标准算例",
       "building_height_m": 18.0,
       "building_spacing_m": 40.0,
-      "street_width_m": 20.0
+      "street_width_m": 20.0,
+      "street_orientation_deg": 30.0,
+      "propagation_condition": "nlos",
+      "city_type": "medium"
     }
   },
   "expected": {
-    "model_name": "COST231-Walfisch-Ikegami",
+    "model_name": "Low-Band Calibrated Ground",
     "coverage_distance_m": {
-      "min": 500.0,
-      "max": 3000.0
+      "min": 1246.0,
+      "max": 1248.0
     }
   }
 }

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -39,7 +40,10 @@ from rt_tetra_cover_studio.report import export_pdf_report, export_word_report
 from rt_tetra_cover_studio.ui.chart_data import extract_chart_series
 from rt_tetra_cover_studio.ui.input_builder import (
     EXAMPLE_CASES,
+    COST231_ONLY_PARAMS,
+    LOW_BAND_ONLY_PARAMS,
     SCENARIO_LABELS,
+    SCENARIO_PARAM_CHOICES,
     SCENARIO_PARAM_LABELS,
     build_input_data,
     load_example_input,
@@ -63,7 +67,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1080, 720)
         self.config = load_json(DEFAULT_CONFIG_PATH)
         self.base_fields: dict[str, QDoubleSpinBox] = {}
-        self.scenario_fields: dict[str, dict[str, QDoubleSpinBox]] = {}
+        self.scenario_fields: dict[str, dict[str, QWidget]] = {}
+        self.scenario_forms: dict[str, QFormLayout] = {}
         self.scenario_buttons: dict[str, QPushButton] = {}
         self.metric_cards: list[QFrame] = []
         self.metric_columns = 4
@@ -295,13 +300,33 @@ class MainWindow(QMainWindow):
         for scenario_type in SCENARIO_LABELS:
             page = QWidget()
             form = self._form_layout(page)
+            self.scenario_forms[scenario_type] = form
             self.scenario_fields[scenario_type] = {}
             for key, value in self.config["scenario_defaults"][scenario_type].items():
-                widget = self._spin_box(0.0, 10000.0, 0.5)
-                widget.setValue(float(value))
+                if key in SCENARIO_PARAM_CHOICES:
+                    widget = QComboBox()
+                    for label, data in SCENARIO_PARAM_CHOICES[key]:
+                        widget.addItem(label, data)
+                    widget.setCurrentIndex(max(widget.findData(value), 0))
+                elif isinstance(value, str):
+                    widget = QLineEdit(value)
+                    widget.setCursorPosition(0)
+                    widget.setToolTip(value)
+                else:
+                    widget = self._scenario_spin_box(key)
+                    widget.setValue(float(value))
                 self.scenario_fields[scenario_type][key] = widget
                 form.addRow(SCENARIO_PARAM_LABELS.get(key, key), widget)
             self.scenario_stack.addWidget(page)
+        for scenario_type in ("ground", "viaduct"):
+            model_field = self.scenario_fields[scenario_type]["ground_model"]
+            if isinstance(model_field, QComboBox):
+                model_field.currentIndexChanged.connect(
+                    lambda _index, scenario=scenario_type: self._update_ground_model_fields(
+                        scenario
+                    )
+                )
+            self._update_ground_model_fields(scenario_type)
         layout.addWidget(self.scenario_stack)
         return section
 
@@ -567,7 +592,7 @@ class MainWindow(QMainWindow):
         scenario_type = self.scenario_combo.currentData()
         field_values = {key: widget.value() for key, widget in self.base_fields.items()}
         scenario_values = {
-            key: widget.value()
+            key: self._scenario_field_value(widget)
             for key, widget in self.scenario_fields[scenario_type].items()
         }
         return build_input_data(
@@ -587,8 +612,16 @@ class MainWindow(QMainWindow):
                 self.base_fields[key].setValue(float(value))
         for key, value in scenario_values.items():
             field = self.scenario_fields[input_data.scenario_type].get(key)
-            if field is not None:
+            if isinstance(field, QDoubleSpinBox):
                 field.setValue(float(value))
+            elif isinstance(field, QComboBox):
+                field.setCurrentIndex(max(field.findData(value), 0))
+            elif isinstance(field, QLineEdit):
+                field.setText(str(value))
+                field.setCursorPosition(0)
+                field.setToolTip(str(value))
+        if input_data.scenario_type in {"ground", "viaduct"}:
+            self._update_ground_model_fields(input_data.scenario_type)
 
     def _show_validation_errors(self, errors: list[str]) -> None:
         message = "\n".join(errors)
@@ -690,7 +723,12 @@ class MainWindow(QMainWindow):
             field.valueChanged.connect(self._invalidate_report_data)
         for fields in self.scenario_fields.values():
             for field in fields.values():
-                field.valueChanged.connect(self._invalidate_report_data)
+                if isinstance(field, QDoubleSpinBox):
+                    field.valueChanged.connect(self._invalidate_report_data)
+                elif isinstance(field, QComboBox):
+                    field.currentIndexChanged.connect(self._invalidate_report_data)
+                elif isinstance(field, QLineEdit):
+                    field.textChanged.connect(self._invalidate_report_data)
 
     def _invalidate_report_data(self, *_unused: object) -> None:
         self.current_report_data = None
@@ -810,6 +848,46 @@ class MainWindow(QMainWindow):
         widget.setKeyboardTracking(False)
         widget.setAlignment(Qt.AlignRight)
         return widget
+
+    def _scenario_spin_box(self, key: str) -> QDoubleSpinBox:
+        if key in {"model_correction_db", "calibration_offset_db", "viaduct_correction_db"}:
+            return self._spin_box(-100.0, 100.0, 0.5)
+        if key == "street_orientation_deg":
+            return self._spin_box(0.0, 90.0, 1.0)
+        if key == "path_loss_exponent":
+            return self._spin_box(0.1, 10.0, 0.1)
+        return self._spin_box(0.0, 50_000.0, 0.5)
+
+    def _update_ground_model_fields(self, scenario_type: str) -> None:
+        fields = self.scenario_fields[scenario_type]
+        model_field = fields.get("ground_model")
+        if not isinstance(model_field, QComboBox):
+            return
+        selected_model = model_field.currentData()
+        form = self.scenario_forms[scenario_type]
+        for key in LOW_BAND_ONLY_PARAMS | COST231_ONLY_PARAMS:
+            widget = fields.get(key)
+            if widget is None:
+                continue
+            visible = key in (
+                LOW_BAND_ONLY_PARAMS
+                if selected_model == "low_band"
+                else COST231_ONLY_PARAMS
+            )
+            widget.setVisible(visible)
+            label = form.labelForField(widget)
+            if label is not None:
+                label.setVisible(visible)
+
+    @staticmethod
+    def _scenario_field_value(widget: QWidget) -> float | str:
+        if isinstance(widget, QDoubleSpinBox):
+            return widget.value()
+        if isinstance(widget, QComboBox):
+            return str(widget.currentData())
+        if isinstance(widget, QLineEdit):
+            return widget.text().strip()
+        raise TypeError(f"Unsupported scenario field widget: {type(widget).__name__}")
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -939,7 +1017,7 @@ class MainWindow(QMainWindow):
                 border-color: #b8d4e8;
                 font-weight: 700;
             }
-            QComboBox, QDoubleSpinBox {
+            QComboBox, QDoubleSpinBox, QLineEdit {
                 min-height: 31px;
                 background: #ffffff;
                 color: #1f2d37;
@@ -948,10 +1026,10 @@ class MainWindow(QMainWindow):
                 padding: 0 8px;
                 selection-background-color: #dcecf8;
             }
-            QComboBox:hover, QDoubleSpinBox:hover {
+            QComboBox:hover, QDoubleSpinBox:hover, QLineEdit:hover {
                 border-color: #9eb4c3;
             }
-            QComboBox:focus, QDoubleSpinBox:focus {
+            QComboBox:focus, QDoubleSpinBox:focus, QLineEdit:focus {
                 border: 1px solid #1769aa;
             }
             QComboBox::drop-down {

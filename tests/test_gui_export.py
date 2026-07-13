@@ -94,6 +94,31 @@ class GuiExportTest(unittest.TestCase):
         finally:
             window.close()
 
+    def test_ground_model_switch_updates_fields_and_model(self) -> None:
+        window = MainWindow()
+        try:
+            window.scenario_buttons["ground"].click()
+            model_field = window.scenario_fields["ground"]["ground_model"]
+            model_field.setCurrentIndex(model_field.findData("cost231_wi"))
+            window.base_fields["frequency_mhz"].setValue(900.0)
+            window.base_fields["base_height_m"].setValue(25.0)
+
+            self.assertTrue(
+                window.scenario_fields["ground"]["path_loss_exponent"].isHidden()
+            )
+            self.assertFalse(
+                window.scenario_fields["ground"]["street_orientation_deg"].isHidden()
+            )
+
+            window._calculate()
+
+            self.assertEqual(
+                window.current_report_data["summary"]["model_name"],
+                "COST231-Walfisch-Ikegami",
+            )
+        finally:
+            window.close()
+
 
 def _save_path(path: Path):
     return staticmethod(lambda *_args, **_kwargs: (str(path), ""))

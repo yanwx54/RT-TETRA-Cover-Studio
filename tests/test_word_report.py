@@ -36,6 +36,14 @@ class WordReportTest(unittest.TestCase):
         self.assertIn("详细计算过程", text)
         self.assertIn("阴影衰落余量", text)
         self.assertIn("系统 MAPL", text)
+        table_text = "\n".join(
+            cell.text
+            for table in document.tables
+            for row in table.rows
+            for cell in row.cells
+        )
+        self.assertIn("模型校准状态", table_text)
+        self.assertIn("V1.0 ITU-R P.1238 标准算例", table_text)
         self.assertGreaterEqual(len(document.tables), 5)
         self.assertGreaterEqual(len(document.inline_shapes), 2)
         header_text = "\n".join(

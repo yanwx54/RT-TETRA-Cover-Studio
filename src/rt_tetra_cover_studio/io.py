@@ -39,7 +39,10 @@ def calculation_input_from_dict(data: dict[str, Any]) -> CalculationInput:
         base_height_m=float(data["base_height_m"]),
         mobile_height_m=float(data["mobile_height_m"]),
         scenario_type=str(data["scenario_type"]),
-        scenario_params={key: float(value) for key, value in data["scenario_params"].items()},
+        scenario_params={
+            key: str(value) if isinstance(value, str) else float(value)
+            for key, value in data["scenario_params"].items()
+        },
     )
 
 
@@ -87,6 +90,12 @@ def calculation_result_to_dict(result: CalculationResult) -> dict[str, Any]:
             "downlink_mapl_db": result.link_budget.downlink_mapl_db,
             "uplink_mapl_db": result.link_budget.uplink_mapl_db,
             "limiting_link": result.link_budget.limiting_link,
+            "calibration_status": result.input.scenario_params.get(
+                "calibration_status", "not_applicable"
+            ),
+            "calibration_source": result.input.scenario_params.get(
+                "calibration_source", ""
+            ),
             "boundary_path_loss_db": result.boundary_path_loss_db,
             "boundary_rssi_dbm": result.boundary_rssi_dbm,
             "warnings": list(result.warnings),
@@ -196,6 +205,9 @@ def _report_sections(result: CalculationResult) -> list[dict[str, Any]]:
                 "coverage_distance_m": result.coverage_distance_m,
                 "coverage_level": result.coverage_level,
                 "model_name": result.model_name,
+                "calibration_status": result.input.scenario_params.get(
+                    "calibration_status", "not_applicable"
+                ),
             },
         },
         {

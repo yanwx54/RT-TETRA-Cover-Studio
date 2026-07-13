@@ -47,8 +47,10 @@ class GuiInputBuilderTest(unittest.TestCase):
         )
         result = calculate_coverage(input_data)
 
-        self.assertEqual(result.model_name, "COST231-Walfisch-Ikegami")
+        self.assertEqual(result.model_name, "Low-Band Calibrated Ground")
         self.assertGreater(result.coverage_distance_m, 1.0)
+        self.assertNotIn("building_height_m", input_data.scenario_params)
+        self.assertIn("path_loss_exponent", input_data.scenario_params)
 
     def test_load_example_input_for_gui(self) -> None:
         input_data = load_example_input(PROJECT_DIR / "examples", "viaduct")

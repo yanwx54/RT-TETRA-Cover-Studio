@@ -136,6 +136,8 @@ def _add_summary(story: list[Any], styles: Any, summary: dict[str, Any], colors:
         ("传播模型", summary["model_name"]),
         ("最大覆盖距离", f"{summary['coverage_distance_m']:.1f} m"),
         ("受限链路", summary["limiting_link"]),
+        ("模型校准状态", summary["calibration_status"]),
+        ("模型参数来源", summary["calibration_source"] or "未提供"),
         ("基站 EIRP", f"{summary['base_eirp_dbm']:.2f} dBm"),
         ("手台 EIRP", f"{summary['mobile_eirp_dbm']:.2f} dBm"),
         ("下行 MAPL", f"{summary['downlink_mapl_db']:.2f} dB"),

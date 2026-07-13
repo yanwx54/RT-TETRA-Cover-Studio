@@ -76,7 +76,7 @@ class BoundaryConditionsTest(unittest.TestCase):
         result = calculate_coverage(input_data, max_distance_m=5000.0)
 
         self.assertEqual(result.coverage_distance_m, 5000.0)
-        self.assertTrue(any("最大搜索上限" in warning for warning in result.warnings))
+        self.assertTrue(any("距离上限" in warning for warning in result.warnings))
         self.assertEqual(result.iteration_steps[0].iteration, 0)
 
     def test_invalid_scenario_type_is_rejected(self) -> None:
@@ -95,7 +95,7 @@ class BoundaryConditionsTest(unittest.TestCase):
 
         errors = validate_input(input_data)
 
-        self.assertTrue(any("不能小于 0" in error for error in errors))
+        self.assertTrue(any("必须大于 0" in error for error in errors))
         with self.assertRaises(ValueError):
             calculate_coverage(input_data)
 
