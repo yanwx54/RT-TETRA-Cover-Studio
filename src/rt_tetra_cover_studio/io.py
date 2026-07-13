@@ -22,17 +22,24 @@ def load_json(path: str | Path) -> dict[str, Any]:
 def calculation_input_from_dict(data: dict[str, Any]) -> CalculationInput:
     return CalculationInput(
         frequency_mhz=float(data["frequency_mhz"]),
-        tx_power_dbm=float(data["tx_power_dbm"]),
+        base_tx_power_w=float(data["base_tx_power_w"]),
+        mobile_tx_power_w=float(data["mobile_tx_power_w"]),
         base_antenna_gain_dbi=float(data["base_antenna_gain_dbi"]),
-        feeder_loss_db=float(data["feeder_loss_db"]),
-        connector_loss_db=float(data["connector_loss_db"]),
+        base_feeder_loss_db=float(data["base_feeder_loss_db"]),
+        base_other_loss_db=float(data["base_other_loss_db"]),
         mobile_antenna_gain_dbi=float(data["mobile_antenna_gain_dbi"]),
-        receiver_sensitivity_dbm=float(data["receiver_sensitivity_dbm"]),
+        body_loss_db=float(data["body_loss_db"]),
+        mobile_receiver_sensitivity_dbm=float(data["mobile_receiver_sensitivity_dbm"]),
+        base_receiver_sensitivity_dbm=float(data["base_receiver_sensitivity_dbm"]),
+        base_diversity_gain_db=float(data["base_diversity_gain_db"]),
+        shadow_fading_std_db=float(data["shadow_fading_std_db"]),
+        edge_coverage_probability_pct=float(data["edge_coverage_probability_pct"]),
+        interference_margin_db=float(data["interference_margin_db"]),
+        penetration_loss_db=float(data["penetration_loss_db"]),
         base_height_m=float(data["base_height_m"]),
         mobile_height_m=float(data["mobile_height_m"]),
         scenario_type=str(data["scenario_type"]),
         scenario_params={key: float(value) for key, value in data["scenario_params"].items()},
-        engineering_margin_db=float(data.get("engineering_margin_db", 8.0)),
     )
 
 
@@ -45,17 +52,24 @@ def load_example_case(path: str | Path) -> dict[str, Any]:
 def calculation_input_to_dict(input_data: CalculationInput) -> dict[str, Any]:
     return {
         "frequency_mhz": input_data.frequency_mhz,
-        "tx_power_dbm": input_data.tx_power_dbm,
+        "base_tx_power_w": input_data.base_tx_power_w,
+        "mobile_tx_power_w": input_data.mobile_tx_power_w,
         "base_antenna_gain_dbi": input_data.base_antenna_gain_dbi,
-        "feeder_loss_db": input_data.feeder_loss_db,
-        "connector_loss_db": input_data.connector_loss_db,
+        "base_feeder_loss_db": input_data.base_feeder_loss_db,
+        "base_other_loss_db": input_data.base_other_loss_db,
         "mobile_antenna_gain_dbi": input_data.mobile_antenna_gain_dbi,
-        "receiver_sensitivity_dbm": input_data.receiver_sensitivity_dbm,
+        "body_loss_db": input_data.body_loss_db,
+        "mobile_receiver_sensitivity_dbm": input_data.mobile_receiver_sensitivity_dbm,
+        "base_receiver_sensitivity_dbm": input_data.base_receiver_sensitivity_dbm,
+        "base_diversity_gain_db": input_data.base_diversity_gain_db,
+        "shadow_fading_std_db": input_data.shadow_fading_std_db,
+        "edge_coverage_probability_pct": input_data.edge_coverage_probability_pct,
+        "interference_margin_db": input_data.interference_margin_db,
+        "penetration_loss_db": input_data.penetration_loss_db,
         "base_height_m": input_data.base_height_m,
         "mobile_height_m": input_data.mobile_height_m,
         "scenario_type": input_data.scenario_type,
         "scenario_params": dict(input_data.scenario_params),
-        "engineering_margin_db": input_data.engineering_margin_db,
     }
 
 
@@ -66,8 +80,13 @@ def calculation_result_to_dict(result: CalculationResult) -> dict[str, Any]:
             "model_name": result.model_name,
             "coverage_distance_m": result.coverage_distance_m,
             "coverage_level": result.coverage_level,
-            "eirp_dbm": result.link_budget.eirp_dbm,
+            "eirp_dbm": result.link_budget.base_eirp_dbm,
+            "base_eirp_dbm": result.link_budget.base_eirp_dbm,
+            "mobile_eirp_dbm": result.link_budget.mobile_eirp_dbm,
             "max_path_loss_db": result.link_budget.max_path_loss_db,
+            "downlink_mapl_db": result.link_budget.downlink_mapl_db,
+            "uplink_mapl_db": result.link_budget.uplink_mapl_db,
+            "limiting_link": result.link_budget.limiting_link,
             "boundary_path_loss_db": result.boundary_path_loss_db,
             "boundary_rssi_dbm": result.boundary_rssi_dbm,
             "warnings": list(result.warnings),
@@ -76,6 +95,23 @@ def calculation_result_to_dict(result: CalculationResult) -> dict[str, Any]:
             "link_budget": _link_budget_to_dict(result.link_budget),
             "calculation_steps": [_calculation_step_to_dict(step) for step in result.calculation_steps],
             "iteration_steps": [_iteration_step_to_dict(step) for step in result.iteration_steps],
+            "calculation_sections": [
+                {
+                    "number": section.number,
+                    "title": section.title,
+                    "description": section.description,
+                    "details": [
+                        {
+                            "name": detail.name,
+                            "formula": detail.formula,
+                            "substitution": detail.substitution,
+                            "result": detail.result,
+                        }
+                        for detail in section.details
+                    ],
+                }
+                for section in result.calculation_sections
+            ],
         },
         "charts": {
             "path_loss_curve": [
@@ -106,8 +142,16 @@ def save_calculation_result(result: CalculationResult, path: str | Path) -> Path
 
 def _link_budget_to_dict(link_budget: LinkBudgetResult) -> dict[str, Any]:
     return {
-        "eirp_dbm": link_budget.eirp_dbm,
+        "eirp_dbm": link_budget.base_eirp_dbm,
+        "base_eirp_dbm": link_budget.base_eirp_dbm,
+        "mobile_eirp_dbm": link_budget.mobile_eirp_dbm,
+        "shadow_fading_margin_db": link_budget.shadow_fading_margin_db,
+        "required_rx_mobile_dbm": link_budget.required_rx_mobile_dbm,
+        "required_rx_base_dbm": link_budget.required_rx_base_dbm,
+        "downlink_mapl_db": link_budget.downlink_mapl_db,
+        "uplink_mapl_db": link_budget.uplink_mapl_db,
         "max_path_loss_db": link_budget.max_path_loss_db,
+        "limiting_link": link_budget.limiting_link,
         "steps": [_calculation_step_to_dict(step) for step in link_budget.steps],
     }
 

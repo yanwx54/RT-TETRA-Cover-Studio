@@ -77,6 +77,23 @@ class GuiExportTest(unittest.TestCase):
         finally:
             window.close()
 
+    def test_engineering_inputs_and_detailed_calculation_layout(self) -> None:
+        window = MainWindow()
+        try:
+            self.assertIn("base_tx_power_w", window.base_fields)
+            self.assertIn("mobile_receiver_sensitivity_dbm", window.base_fields)
+            self.assertEqual(window.base_fields["base_tx_power_w"].suffix(), "")
+
+            window._calculate()
+
+            detail_text = window.calculation_details.toPlainText()
+            self.assertIn("1. 有效全向辐射功率", detail_text)
+            self.assertIn("3. 最大允许路径损耗", detail_text)
+            self.assertIn("5. 覆盖距离求解", detail_text)
+            self.assertEqual(window.result_labels["limiting_link"].text(), "上行")
+        finally:
+            window.close()
+
 
 def _save_path(path: Path):
     return staticmethod(lambda *_args, **_kwargs: (str(path), ""))

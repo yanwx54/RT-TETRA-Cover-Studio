@@ -17,17 +17,24 @@ from rt_tetra_cover_studio.validation import validate_input
 def underground_input(**overrides: object) -> CalculationInput:
     data = {
         "frequency_mhz": 400.0,
-        "tx_power_dbm": 40.0,
-        "base_antenna_gain_dbi": 5.0,
-        "feeder_loss_db": 2.0,
-        "connector_loss_db": 1.0,
+        "base_tx_power_w": 25.0,
+        "mobile_tx_power_w": 1.0,
+        "base_antenna_gain_dbi": 9.0,
+        "base_feeder_loss_db": 2.0,
+        "base_other_loss_db": 3.0,
         "mobile_antenna_gain_dbi": 0.0,
-        "receiver_sensitivity_dbm": -112.0,
+        "body_loss_db": 3.0,
+        "mobile_receiver_sensitivity_dbm": -103.0,
+        "base_receiver_sensitivity_dbm": -112.0,
+        "base_diversity_gain_db": 0.0,
+        "shadow_fading_std_db": 8.0,
+        "edge_coverage_probability_pct": 95.0,
+        "interference_margin_db": 2.0,
+        "penetration_loss_db": 10.0,
         "base_height_m": 3.0,
         "mobile_height_m": 1.5,
         "scenario_type": "underground",
         "scenario_params": {"distance_power_loss_coefficient": 40.0},
-        "engineering_margin_db": 8.0,
     }
     data.update(overrides)
     return CalculationInput(**data)
@@ -36,10 +43,15 @@ def underground_input(**overrides: object) -> CalculationInput:
 class BoundaryConditionsTest(unittest.TestCase):
     def test_no_effective_coverage_returns_min_distance_warning(self) -> None:
         input_data = underground_input(
-            tx_power_dbm=0.0,
+            base_tx_power_w=0.001,
+            mobile_tx_power_w=0.001,
             base_antenna_gain_dbi=0.0,
-            receiver_sensitivity_dbm=-10.0,
-            engineering_margin_db=0.0,
+            mobile_receiver_sensitivity_dbm=-10.0,
+            base_receiver_sensitivity_dbm=-10.0,
+            shadow_fading_std_db=0.0,
+            edge_coverage_probability_pct=50.0,
+            interference_margin_db=0.0,
+            penetration_loss_db=0.0,
         )
 
         result = calculate_coverage(input_data)
@@ -50,10 +62,15 @@ class BoundaryConditionsTest(unittest.TestCase):
 
     def test_reaches_search_upper_bound_returns_warning(self) -> None:
         input_data = underground_input(
-            tx_power_dbm=120.0,
+            base_tx_power_w=1_000_000_000.0,
+            mobile_tx_power_w=1_000_000_000.0,
             base_antenna_gain_dbi=20.0,
-            receiver_sensitivity_dbm=-120.0,
-            engineering_margin_db=0.0,
+            mobile_receiver_sensitivity_dbm=-140.0,
+            base_receiver_sensitivity_dbm=-140.0,
+            shadow_fading_std_db=0.0,
+            edge_coverage_probability_pct=50.0,
+            interference_margin_db=0.0,
+            penetration_loss_db=0.0,
         )
 
         result = calculate_coverage(input_data, max_distance_m=5000.0)

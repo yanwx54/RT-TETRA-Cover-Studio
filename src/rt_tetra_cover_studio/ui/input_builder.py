@@ -15,18 +15,18 @@ SCENARIO_LABELS = {
 }
 
 SCENARIO_PARAM_LABELS = {
-    "distance_power_loss_coefficient": "距离损耗系数",
-    "wall_loss_db": "墙体损耗 dB",
-    "floor_loss_db": "楼层损耗 dB",
-    "tunnel_width_m": "隧道宽度 m",
-    "tunnel_height_m": "隧道高度 m",
-    "alpha_db_per_km": "单位距离损耗 dB/km",
-    "bend_loss_db": "弯曲损耗 dB",
-    "building_height_m": "建筑平均高度 m",
-    "building_spacing_m": "建筑间距 m",
-    "street_width_m": "街道宽度 m",
-    "viaduct_height_m": "高架高度 m",
-    "curve_radius_m": "曲线半径 m",
+    "distance_power_loss_coefficient": "距离损耗系数 N",
+    "wall_loss_db": "墙体损耗 (dB)",
+    "floor_loss_db": "楼层损耗 (dB)",
+    "tunnel_width_m": "隧道宽度 (m)",
+    "tunnel_height_m": "隧道高度 (m)",
+    "alpha_db_per_km": "单位距离损耗 (dB/km)",
+    "bend_loss_db": "弯曲损耗 (dB)",
+    "building_height_m": "建筑平均高度 (m)",
+    "building_spacing_m": "建筑间距 (m)",
+    "street_width_m": "街道宽度 (m)",
+    "viaduct_height_m": "高架高度 (m)",
+    "curve_radius_m": "曲线半径 (m)",
 }
 
 EXAMPLE_CASES = {
@@ -47,7 +47,7 @@ def build_input_data(
     input_data = {
         **config["wireless"],
         **config["height"],
-        "engineering_margin_db": config["engineering_margin_db"],
+        **config["coverage_design"],
         "scenario_type": scenario_type,
         "scenario_params": dict(config["scenario_defaults"][scenario_type]),
     }
@@ -59,15 +59,22 @@ def build_input_data(
 def split_input_for_fields(input_data: CalculationInput) -> tuple[dict[str, float], dict[str, float]]:
     base_values = {
         "frequency_mhz": input_data.frequency_mhz,
-        "tx_power_dbm": input_data.tx_power_dbm,
+        "base_tx_power_w": input_data.base_tx_power_w,
+        "mobile_tx_power_w": input_data.mobile_tx_power_w,
         "base_antenna_gain_dbi": input_data.base_antenna_gain_dbi,
-        "feeder_loss_db": input_data.feeder_loss_db,
-        "connector_loss_db": input_data.connector_loss_db,
+        "base_feeder_loss_db": input_data.base_feeder_loss_db,
+        "base_other_loss_db": input_data.base_other_loss_db,
         "mobile_antenna_gain_dbi": input_data.mobile_antenna_gain_dbi,
-        "receiver_sensitivity_dbm": input_data.receiver_sensitivity_dbm,
+        "body_loss_db": input_data.body_loss_db,
+        "mobile_receiver_sensitivity_dbm": input_data.mobile_receiver_sensitivity_dbm,
+        "base_receiver_sensitivity_dbm": input_data.base_receiver_sensitivity_dbm,
+        "base_diversity_gain_db": input_data.base_diversity_gain_db,
+        "shadow_fading_std_db": input_data.shadow_fading_std_db,
+        "edge_coverage_probability_pct": input_data.edge_coverage_probability_pct,
+        "interference_margin_db": input_data.interference_margin_db,
+        "penetration_loss_db": input_data.penetration_loss_db,
         "base_height_m": input_data.base_height_m,
         "mobile_height_m": input_data.mobile_height_m,
-        "engineering_margin_db": input_data.engineering_margin_db,
     }
     return base_values, dict(input_data.scenario_params)
 

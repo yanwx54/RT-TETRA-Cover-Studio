@@ -33,6 +33,9 @@ class WordReportTest(unittest.TestCase):
         self.assertIn("RT-TETRA Cover Studio 覆盖计算报告", text)
         self.assertIn("工程信息", text)
         self.assertIn("核心结论", text)
+        self.assertIn("详细计算过程", text)
+        self.assertIn("阴影衰落余量", text)
+        self.assertIn("系统 MAPL", text)
         self.assertGreaterEqual(len(document.tables), 5)
         self.assertGreaterEqual(len(document.inline_shapes), 2)
         header_text = "\n".join(

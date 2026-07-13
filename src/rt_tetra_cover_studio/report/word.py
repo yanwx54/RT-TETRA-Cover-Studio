@@ -34,7 +34,7 @@ def export_word_report(
     _add_project_info(document, project_info_rows(template, report_data))
     _add_summary(document, report_data["summary"])
     _add_input_table(document, report_data["input"])
-    _add_link_budget(document, report_data["details"]["link_budget"])
+    _add_calculation_sections(document, report_data["details"]["calculation_sections"])
     _add_iteration_summary(document, report_data["details"]["iteration_steps"])
     _add_curve_summary(document, report_data["charts"], template["curve_sample_points"])
     _add_curve_images(document, report_data["charts"], Inches)
@@ -65,10 +65,13 @@ def _add_summary(document: Any, summary: dict[str, Any]) -> None:
     rows = [
         ("传播模型", summary["model_name"]),
         ("最大覆盖距离", f"{summary['coverage_distance_m']:.1f} m"),
-        ("覆盖等级", summary["coverage_level"]),
-        ("EIRP", f"{summary['eirp_dbm']:.2f} dBm"),
-        ("最大允许路径损耗", f"{summary['max_path_loss_db']:.2f} dB"),
-        ("覆盖边界 RSSI", f"{summary['boundary_rssi_dbm']:.2f} dBm"),
+        ("受限链路", summary["limiting_link"]),
+        ("基站 EIRP", f"{summary['base_eirp_dbm']:.2f} dBm"),
+        ("手台 EIRP", f"{summary['mobile_eirp_dbm']:.2f} dBm"),
+        ("下行 MAPL", f"{summary['downlink_mapl_db']:.2f} dB"),
+        ("上行 MAPL", f"{summary['uplink_mapl_db']:.2f} dB"),
+        ("系统 MAPL", f"{summary['max_path_loss_db']:.2f} dB"),
+        ("下行边界 RSSI", f"{summary['boundary_rssi_dbm']:.2f} dBm"),
     ]
     _add_key_value_table(document, rows)
 
@@ -85,24 +88,16 @@ def _add_input_table(document: Any, input_data: dict[str, Any]) -> None:
     _add_key_value_table(document, rows)
 
 
-def _add_link_budget(document: Any, link_budget: dict[str, Any]) -> None:
-    document.add_heading("链路预算", level=1)
-    document.add_paragraph(f"EIRP：{link_budget['eirp_dbm']:.2f} dBm")
-    document.add_paragraph(f"最大允许路径损耗：{link_budget['max_path_loss_db']:.2f} dB")
-    table = document.add_table(rows=1, cols=4)
-    table.style = "Table Grid"
-    _set_cells(table.rows[0].cells, ["步骤", "公式", "代入", "结果"])
-    for step in link_budget["steps"]:
-        cells = table.add_row().cells
-        _set_cells(
-            cells,
-            [
-                step["name"],
-                step["formula"],
-                step["substitution"],
-                f"{step['result']:.2f} {step['unit']}",
-            ],
-        )
+def _add_calculation_sections(document: Any, sections: list[dict[str, Any]]) -> None:
+    document.add_heading("详细计算过程", level=1)
+    for section in sections:
+        document.add_heading(f"{section['number']} {section['title']}", level=2)
+        document.add_paragraph(section["description"])
+        for detail in section["details"]:
+            document.add_paragraph(detail["name"], style="Heading 3")
+            document.add_paragraph(f"公式：{detail['formula']}")
+            document.add_paragraph(f"代入：{detail['substitution']}")
+            document.add_paragraph(f"结果：{detail['result']}")
 
 
 def _add_iteration_summary(document: Any, iteration_steps: list[dict[str, Any]]) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -7,7 +8,6 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QFont, QFontDatabase, QResizeEvent
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QButtonGroup,
     QComboBox,
@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -27,8 +26,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
     QStyle,
-    QTableWidget,
-    QTableWidgetItem,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -150,8 +147,8 @@ class MainWindow(QMainWindow):
         input_scroll = QScrollArea()
         input_scroll.setObjectName("inputScroll")
         input_scroll.setWidgetResizable(True)
-        input_scroll.setMinimumWidth(310)
-        input_scroll.setMaximumWidth(350)
+        input_scroll.setMinimumWidth(365)
+        input_scroll.setMaximumWidth(400)
         input_scroll.setFrameShape(QFrame.NoFrame)
         input_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         input_panel = QWidget()
@@ -259,22 +256,29 @@ class MainWindow(QMainWindow):
         wireless_form = self._form_layout()
         wireless_fields = [
             ("frequency_mhz", "工作频率", 100.0, 1000.0, 1.0, "MHz"),
-            ("tx_power_dbm", "发射功率", -20.0, 120.0, 1.0, "dBm"),
+            ("base_tx_power_w", "基站发射功率", 0.001, 10000.0, 1.0, "W"),
+            ("mobile_tx_power_w", "手台发射功率", 0.001, 1000.0, 0.1, "W"),
             ("base_antenna_gain_dbi", "基站天线增益", -20.0, 80.0, 0.5, "dBi"),
-            ("feeder_loss_db", "馈线损耗", 0.0, 80.0, 0.5, "dB"),
-            ("connector_loss_db", "接头损耗", 0.0, 80.0, 0.5, "dB"),
+            ("base_feeder_loss_db", "基站馈线损耗", 0.0, 80.0, 0.5, "dB"),
+            ("base_other_loss_db", "基站其他损耗", 0.0, 80.0, 0.5, "dB"),
             ("mobile_antenna_gain_dbi", "手台天线增益", -20.0, 30.0, 0.5, "dBi"),
-            ("receiver_sensitivity_dbm", "接收灵敏度", -150.0, -1.0, 1.0, "dBm"),
+            ("body_loss_db", "人体损耗", 0.0, 80.0, 0.5, "dB"),
+            ("mobile_receiver_sensitivity_dbm", "手台接收灵敏度", -150.0, -1.0, 1.0, "dBm"),
+            ("base_receiver_sensitivity_dbm", "基站接收灵敏度", -150.0, -1.0, 1.0, "dBm"),
+            ("base_diversity_gain_db", "基站分集增益", 0.0, 30.0, 0.5, "dB"),
         ]
         self._add_fields(wireless_form, wireless_fields)
         layout.addLayout(wireless_form)
 
-        layout.addWidget(self._subsection_title("高度与工程"))
+        layout.addWidget(self._subsection_title("高度与覆盖设计"))
         engineering_form = self._form_layout()
         engineering_fields = [
             ("base_height_m", "基站高度", 0.1, 200.0, 0.5, "m"),
             ("mobile_height_m", "手台高度", 0.1, 20.0, 0.1, "m"),
-            ("engineering_margin_db", "工程裕度", 0.0, 80.0, 0.5, "dB"),
+            ("shadow_fading_std_db", "阴影衰落标准差", 0.0, 40.0, 0.5, "dB"),
+            ("edge_coverage_probability_pct", "边缘覆盖率", 50.0, 99.999, 1.0, "%"),
+            ("interference_margin_db", "干扰余量", 0.0, 80.0, 0.5, "dB"),
+            ("penetration_loss_db", "穿透损耗", 0.0, 80.0, 0.5, "dB"),
         ]
         self._add_fields(engineering_form, engineering_fields)
         layout.addLayout(engineering_form)
@@ -309,9 +313,9 @@ class MainWindow(QMainWindow):
         self.metric_layout = layout
         items = [
             ("coverage_distance_m", "最大覆盖距离", "#1769aa", "覆盖边界"),
-            ("coverage_level", "覆盖等级", "#2d8a57", "设计评价"),
-            ("max_path_loss_db", "最大路径损耗", "#d09022", "含工程裕度"),
-            ("boundary_rssi_dbm", "边界 RSSI", "#c74343", "接收电平"),
+            ("limiting_link", "受限链路", "#2d8a57", "系统 MAPL"),
+            ("max_path_loss_db", "系统 MAPL", "#d09022", "上下行较小值"),
+            ("boundary_rssi_dbm", "下行边界 RSSI", "#c74343", "瞬时接收电平"),
         ]
         for index, (key, title, accent, note) in enumerate(items):
             card = QFrame()
@@ -377,10 +381,10 @@ class MainWindow(QMainWindow):
         self.result_labels["model_name"] = model_value
         layout.addWidget(model_value)
         layout.addSpacing(18)
-        layout.addWidget(self._context_label("EIRP"))
+        layout.addWidget(self._context_label("DL / UL MAPL"))
         eirp_value = QLabel("-")
         eirp_value.setObjectName("contextValue")
-        self.result_labels["eirp_dbm"] = eirp_value
+        self.result_labels["mapl_pair"] = eirp_value
         layout.addWidget(eirp_value)
         layout.addStretch()
         self.result_state_label = QLabel("等待计算")
@@ -427,19 +431,12 @@ class MainWindow(QMainWindow):
         header.addWidget(self.iteration_label)
         layout.addLayout(header)
 
-        self.steps_table = QTableWidget(0, 4)
-        self.steps_table.setHorizontalHeaderLabels(["步骤", "公式", "代入", "结果"])
-        self.steps_table.setObjectName("stepsTable")
-        self.steps_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.steps_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.steps_table.setAlternatingRowColors(False)
-        self.steps_table.verticalHeader().setVisible(False)
-        self.steps_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.steps_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.steps_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.steps_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.steps_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        layout.addWidget(self.steps_table, stretch=2)
+        self.calculation_details = QTextEdit()
+        self.calculation_details.setReadOnly(True)
+        self.calculation_details.setObjectName("calculationDetails")
+        self.calculation_details.setPlaceholderText("等待计算")
+        self.calculation_details.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.calculation_details, stretch=2)
 
         self.warning_text = QTextEdit()
         self.warning_text.setReadOnly(True)
@@ -501,17 +498,14 @@ class MainWindow(QMainWindow):
         fields: list[tuple[str, str, float, float, float, str]],
     ) -> None:
         for key, label, minimum, maximum, step, unit in fields:
-            widget = self._spin_box(minimum, maximum, step, unit)
+            widget = self._spin_box(minimum, maximum, step)
             self.base_fields[key] = widget
-            form.addRow(label, widget)
+            form.addRow(f"{label} ({unit})", widget)
 
     def _populate_defaults(self) -> None:
-        for section in ("wireless", "height"):
+        for section in ("wireless", "height", "coverage_design"):
             for key, value in self.config[section].items():
                 self.base_fields[key].setValue(float(value))
-        self.base_fields["engineering_margin_db"].setValue(
-            float(self.config["engineering_margin_db"])
-        )
         self._on_scenario_changed()
         self.result_state_label.setText("等待计算")
         self.status_label.setText("已恢复默认参数")
@@ -608,9 +602,11 @@ class MainWindow(QMainWindow):
         self.result_labels["coverage_distance_m"].setText(
             f"{summary['coverage_distance_m']:.1f} m"
         )
-        self.result_labels["coverage_level"].setText(str(summary["coverage_level"]))
+        self.result_labels["limiting_link"].setText(str(summary["limiting_link"]))
         self.result_labels["model_name"].setText(str(summary["model_name"]))
-        self.result_labels["eirp_dbm"].setText(f"{summary['eirp_dbm']:.2f} dBm")
+        self.result_labels["mapl_pair"].setText(
+            f"{summary['downlink_mapl_db']:.2f} / {summary['uplink_mapl_db']:.2f} dB"
+        )
         self.result_labels["max_path_loss_db"].setText(
             f"{summary['max_path_loss_db']:.2f} dB"
         )
@@ -618,18 +614,11 @@ class MainWindow(QMainWindow):
             f"{summary['boundary_rssi_dbm']:.2f} dBm"
         )
 
-        steps = serialized["details"]["calculation_steps"]
-        self.steps_table.setRowCount(len(steps))
-        for row, step in enumerate(steps):
-            values = [
-                step["name"],
-                step["formula"],
-                step["substitution"],
-                f"{step['result']:.2f} {step['unit']}",
-            ]
-            for column, value in enumerate(values):
-                self.steps_table.setItem(row, column, QTableWidgetItem(str(value)))
-        self.steps_table.resizeColumnsToContents()
+        self.calculation_details.setHtml(
+            self._format_calculation_sections(
+                serialized["details"]["calculation_sections"]
+            )
+        )
 
         warnings = summary["warnings"]
         self.warning_text.setPlainText("\n".join(warnings) if warnings else "无告警")
@@ -641,6 +630,24 @@ class MainWindow(QMainWindow):
             f"模型：{summary['model_name']} · {serialized['input']['frequency_mhz']:.0f} MHz"
         )
         self._plot_charts(serialized["charts"])
+
+    @staticmethod
+    def _format_calculation_sections(sections: list[dict]) -> str:
+        blocks = []
+        for section in sections:
+            details = []
+            for detail in section["details"]:
+                details.append(
+                    f"<p><b>{escape(detail['name'])}</b><br>"
+                    f"公式：{escape(detail['formula'])}<br>"
+                    f"代入：{escape(detail['substitution'])}<br>"
+                    f"结果：<b>{escape(detail['result'])}</b></p>"
+                )
+            blocks.append(
+                f"<h3>{section['number']}. {escape(section['title'])}</h3>"
+                f"<p>{escape(section['description'])}</p>{''.join(details)}"
+            )
+        return "".join(blocks)
 
     def _export_report(self, report_type: str) -> None:
         if self.current_report_data is None:
@@ -795,15 +802,11 @@ class MainWindow(QMainWindow):
 
         canvas.draw_idle()
 
-    def _spin_box(
-        self, minimum: float, maximum: float, step: float, unit: str = ""
-    ) -> QDoubleSpinBox:
+    def _spin_box(self, minimum: float, maximum: float, step: float) -> QDoubleSpinBox:
         widget = QDoubleSpinBox()
         widget.setRange(minimum, maximum)
         widget.setDecimals(3)
         widget.setSingleStep(step)
-        if unit:
-            widget.setSuffix(f" {unit}")
         widget.setKeyboardTracking(False)
         widget.setAlignment(Qt.AlignRight)
         return widget
@@ -1002,17 +1005,13 @@ class MainWindow(QMainWindow):
                 font-size: 13px;
                 font-weight: 700;
             }
-            #stepsTable {
+            #calculationDetails {
                 background: #ffffff;
-                alternate-background-color: #ffffff;
-                border: none;
-                gridline-color: #edf0f2;
+                border: 1px solid #dce3e8;
+                border-radius: 4px;
                 selection-background-color: #e8f2fa;
                 selection-color: #1d2b35;
-            }
-            #stepsTable::item {
-                padding: 6px;
-                border-bottom: 1px solid #edf0f2;
+                padding: 4px;
             }
             QHeaderView::section {
                 background: #f3f5f6;

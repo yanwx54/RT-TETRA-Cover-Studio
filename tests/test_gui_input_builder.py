@@ -27,12 +27,12 @@ class GuiInputBuilderTest(unittest.TestCase):
         input_data = build_input_data(
             config=config,
             scenario_type="tunnel",
-            field_values={"tx_power_dbm": 41.0},
+            field_values={"base_tx_power_w": 30.0},
             scenario_values={"alpha_db_per_km": 9.0},
         )
 
         self.assertEqual(input_data.scenario_type, "tunnel")
-        self.assertEqual(input_data.tx_power_dbm, 41.0)
+        self.assertEqual(input_data.base_tx_power_w, 30.0)
         self.assertEqual(input_data.scenario_params["alpha_db_per_km"], 9.0)
         self.assertIn("tunnel_width_m", input_data.scenario_params)
 
@@ -62,7 +62,7 @@ class GuiInputBuilderTest(unittest.TestCase):
         base_values, scenario_values = split_input_for_fields(input_data)
 
         self.assertEqual(base_values["frequency_mhz"], 400.0)
-        self.assertEqual(base_values["engineering_margin_db"], 8.0)
+        self.assertEqual(base_values["edge_coverage_probability_pct"], 95.0)
         self.assertEqual(scenario_values["tunnel_width_m"], 6.0)
 
     def test_extract_chart_series_for_gui(self) -> None:

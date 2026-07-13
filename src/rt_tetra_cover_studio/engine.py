@@ -1,57 +1,118 @@
 from __future__ import annotations
 
+import math
+from statistics import NormalDist
+
 from .models import (
+    CalculationDetail,
     CalculationInput,
     CalculationResult,
+    CalculationSection,
     CalculationStep,
     CurvePoint,
     IterationStep,
     LinkBudgetResult,
+    PropagationResult,
 )
 from .propagation import get_model
 from .validation import validate_input
 
 
 def calculate_link_budget(input_data: CalculationInput) -> LinkBudgetResult:
-    eirp_dbm = (
-        input_data.tx_power_dbm
+    base_tx_power_dbm = _watts_to_dbm(input_data.base_tx_power_w)
+    mobile_tx_power_dbm = _watts_to_dbm(input_data.mobile_tx_power_w)
+    base_eirp_dbm = (
+        base_tx_power_dbm
         + input_data.base_antenna_gain_dbi
-        - input_data.feeder_loss_db
-        - input_data.connector_loss_db
+        - input_data.base_feeder_loss_db
+        - input_data.base_other_loss_db
     )
-    max_path_loss_db = (
-        eirp_dbm
+    mobile_eirp_dbm = (
+        mobile_tx_power_dbm
         + input_data.mobile_antenna_gain_dbi
-        - input_data.receiver_sensitivity_dbm
-        - input_data.engineering_margin_db
+        - input_data.body_loss_db
     )
+    coverage_probability = input_data.edge_coverage_probability_pct / 100.0
+    z_score = NormalDist().inv_cdf(coverage_probability)
+    shadow_fading_margin_db = z_score * input_data.shadow_fading_std_db
+
+    required_rx_mobile_dbm = (
+        input_data.mobile_receiver_sensitivity_dbm
+        + input_data.body_loss_db
+        - input_data.mobile_antenna_gain_dbi
+        + shadow_fading_margin_db
+        + input_data.interference_margin_db
+        + input_data.penetration_loss_db
+    )
+    required_rx_base_dbm = (
+        input_data.base_receiver_sensitivity_dbm
+        - input_data.base_antenna_gain_dbi
+        + input_data.base_feeder_loss_db
+        + input_data.base_other_loss_db
+        - input_data.base_diversity_gain_db
+        + shadow_fading_margin_db
+        + input_data.interference_margin_db
+        + input_data.penetration_loss_db
+    )
+    downlink_mapl_db = base_eirp_dbm - required_rx_mobile_dbm
+    uplink_mapl_db = mobile_eirp_dbm - required_rx_base_dbm
+    max_path_loss_db = min(downlink_mapl_db, uplink_mapl_db)
+    limiting_link = "下行" if downlink_mapl_db <= uplink_mapl_db else "上行"
 
     steps = [
         CalculationStep(
-            name="EIRP",
-            formula="TxPower + BaseAntennaGain - FeederLoss - ConnectorLoss",
+            name="基站 EIRP",
+            formula="P_BS(dBm) + G_BS - L_feeder - L_other",
             substitution=(
-                f"{input_data.tx_power_dbm} + {input_data.base_antenna_gain_dbi} "
-                f"- {input_data.feeder_loss_db} - {input_data.connector_loss_db}"
+                f"{base_tx_power_dbm:.2f} + {input_data.base_antenna_gain_dbi} "
+                f"- {input_data.base_feeder_loss_db} - {input_data.base_other_loss_db}"
             ),
-            result=eirp_dbm,
+            result=base_eirp_dbm,
             unit="dBm",
         ),
         CalculationStep(
-            name="Maximum Path Loss",
-            formula="EIRP + MobileAntennaGain - ReceiverSensitivity - EngineeringMargin",
+            name="移动台 EIRP",
+            formula="P_MS(dBm) + G_MS - L_body",
             substitution=(
-                f"{eirp_dbm} + {input_data.mobile_antenna_gain_dbi} "
-                f"- ({input_data.receiver_sensitivity_dbm}) - {input_data.engineering_margin_db}"
+                f"{mobile_tx_power_dbm:.2f} + {input_data.mobile_antenna_gain_dbi} "
+                f"- {input_data.body_loss_db}"
             ),
-            result=max_path_loss_db,
+            result=mobile_eirp_dbm,
+            unit="dBm",
+        ),
+        CalculationStep(
+            name="阴影衰落余量",
+            formula="Z(p) × σ",
+            substitution=f"{z_score:.3f} × {input_data.shadow_fading_std_db}",
+            result=shadow_fading_margin_db,
+            unit="dB",
+        ),
+        CalculationStep(
+            name="下行 MAPL",
+            formula="EIRP_BS - Req_Rx_MS",
+            substitution=f"{base_eirp_dbm:.2f} - ({required_rx_mobile_dbm:.2f})",
+            result=downlink_mapl_db,
+            unit="dB",
+        ),
+        CalculationStep(
+            name="上行 MAPL",
+            formula="EIRP_MS - Req_Rx_BS",
+            substitution=f"{mobile_eirp_dbm:.2f} - ({required_rx_base_dbm:.2f})",
+            result=uplink_mapl_db,
             unit="dB",
         ),
     ]
 
     return LinkBudgetResult(
-        eirp_dbm=eirp_dbm,
+        base_eirp_dbm=base_eirp_dbm,
+        mobile_eirp_dbm=mobile_eirp_dbm,
+        shadow_fading_margin_db=shadow_fading_margin_db,
+        required_rx_mobile_dbm=required_rx_mobile_dbm,
+        required_rx_base_dbm=required_rx_base_dbm,
+        downlink_mapl_db=downlink_mapl_db,
+        uplink_mapl_db=uplink_mapl_db,
         max_path_loss_db=max_path_loss_db,
+        limiting_link=limiting_link,
         steps=steps,
     )
 
@@ -95,9 +156,9 @@ def calculate_coverage(
         )
 
     boundary = model.calculate_path_loss(input_data, coverage_distance_m)
-    boundary_rssi_dbm = _calculate_rssi(
-        eirp_dbm=link_budget.eirp_dbm,
-        mobile_antenna_gain_dbi=input_data.mobile_antenna_gain_dbi,
+    boundary_rssi_dbm = _calculate_downlink_rssi(
+        input_data=input_data,
+        base_eirp_dbm=link_budget.base_eirp_dbm,
         path_loss_db=boundary.path_loss_db,
     )
 
@@ -110,8 +171,17 @@ def calculate_coverage(
         boundary_path_loss_db=boundary.path_loss_db,
         boundary_rssi_dbm=boundary_rssi_dbm,
         iteration_steps=iteration_steps,
-        curve_points=_build_curve_points(input_data, link_budget.eirp_dbm, coverage_distance_m, curve_points),
+        curve_points=_build_curve_points(
+            input_data, link_budget.base_eirp_dbm, coverage_distance_m, curve_points
+        ),
         calculation_steps=link_budget.steps,
+        calculation_sections=_build_calculation_sections(
+            input_data=input_data,
+            link_budget=link_budget,
+            boundary=boundary,
+            coverage_distance_m=coverage_distance_m,
+            iteration_steps=iteration_steps,
+        ),
         warnings=warnings,
     )
 
@@ -148,7 +218,7 @@ def _solve_coverage_distance(
 
 def _build_curve_points(
     input_data: CalculationInput,
-    eirp_dbm: float,
+    base_eirp_dbm: float,
     coverage_distance_m: float,
     point_count: int,
 ) -> list[CurvePoint]:
@@ -164,9 +234,9 @@ def _build_curve_points(
             CurvePoint(
                 distance_m=distance_m,
                 path_loss_db=path_loss_db,
-                rssi_dbm=_calculate_rssi(
-                    eirp_dbm=eirp_dbm,
-                    mobile_antenna_gain_dbi=input_data.mobile_antenna_gain_dbi,
+                rssi_dbm=_calculate_downlink_rssi(
+                    input_data=input_data,
+                    base_eirp_dbm=base_eirp_dbm,
                     path_loss_db=path_loss_db,
                 ),
             )
@@ -175,13 +245,197 @@ def _build_curve_points(
     return points
 
 
-def _calculate_rssi(
+def _watts_to_dbm(power_w: float) -> float:
+    return 10.0 * math.log10(power_w * 1000.0)
+
+
+def _calculate_downlink_rssi(
     *,
-    eirp_dbm: float,
-    mobile_antenna_gain_dbi: float,
+    input_data: CalculationInput,
+    base_eirp_dbm: float,
     path_loss_db: float,
 ) -> float:
-    return eirp_dbm + mobile_antenna_gain_dbi - path_loss_db
+    return (
+        base_eirp_dbm
+        - path_loss_db
+        + input_data.mobile_antenna_gain_dbi
+        - input_data.body_loss_db
+        - input_data.penetration_loss_db
+    )
+
+
+def _build_calculation_sections(
+    *,
+    input_data: CalculationInput,
+    link_budget: LinkBudgetResult,
+    boundary: PropagationResult,
+    coverage_distance_m: float,
+    iteration_steps: list[IterationStep],
+) -> list[CalculationSection]:
+    base_tx_power_dbm = _watts_to_dbm(input_data.base_tx_power_w)
+    mobile_tx_power_dbm = _watts_to_dbm(input_data.mobile_tx_power_w)
+    probability = input_data.edge_coverage_probability_pct / 100.0
+    z_score = NormalDist().inv_cdf(probability)
+
+    return [
+        CalculationSection(
+            number=1,
+            title="有效全向辐射功率 (EIRP) 计算",
+            description="EIRP 表示发射端在理想全向天线方向上辐射的等效功率。",
+            details=[
+                CalculationDetail(
+                    name="基站 (BS) EIRP",
+                    formula="EIRP_BS = P_BS(dBm) + G_BS - L_feeder - L_other",
+                    substitution=(
+                        f"EIRP_BS = {base_tx_power_dbm:.2f} + "
+                        f"{input_data.base_antenna_gain_dbi:.2f} - "
+                        f"{input_data.base_feeder_loss_db:.2f} - "
+                        f"{input_data.base_other_loss_db:.2f}"
+                    ),
+                    result=f"EIRP_BS = {link_budget.base_eirp_dbm:.2f} dBm",
+                ),
+                CalculationDetail(
+                    name="移动台 (MS) EIRP",
+                    formula="EIRP_MS = P_MS(dBm) + G_MS - L_body",
+                    substitution=(
+                        f"EIRP_MS = {mobile_tx_power_dbm:.2f} + "
+                        f"{input_data.mobile_antenna_gain_dbi:.2f} - "
+                        f"{input_data.body_loss_db:.2f}"
+                    ),
+                    result=f"EIRP_MS = {link_budget.mobile_eirp_dbm:.2f} dBm",
+                ),
+            ],
+        ),
+        CalculationSection(
+            number=2,
+            title="最低要求接收功率计算",
+            description=(
+                "接收功率必须达到接收灵敏度，并预留地点覆盖概率对应的阴影衰落余量、"
+                "干扰余量和穿透损耗。"
+            ),
+            details=[
+                CalculationDetail(
+                    name="阴影衰落余量",
+                    formula="M_shadow = Z(p) × σ",
+                    substitution=(
+                        f"M_shadow = {z_score:.3f} × {input_data.shadow_fading_std_db:.2f} "
+                        f"(p = {input_data.edge_coverage_probability_pct:.2f}%)"
+                    ),
+                    result=f"M_shadow = {link_budget.shadow_fading_margin_db:.2f} dB",
+                ),
+                CalculationDetail(
+                    name="移动台 (MS) 最低要求接收功率（下行）",
+                    formula="Req_Rx_MS = Sens_MS + L_body - G_MS + M_shadow + M_int + L_pen",
+                    substitution=(
+                        f"Req_Rx_MS = ({input_data.mobile_receiver_sensitivity_dbm:.2f}) + "
+                        f"{input_data.body_loss_db:.2f} - {input_data.mobile_antenna_gain_dbi:.2f} + "
+                        f"{link_budget.shadow_fading_margin_db:.2f} + "
+                        f"{input_data.interference_margin_db:.2f} + {input_data.penetration_loss_db:.2f}"
+                    ),
+                    result=f"Req_Rx_MS = {link_budget.required_rx_mobile_dbm:.2f} dBm",
+                ),
+                CalculationDetail(
+                    name="基站 (BS) 最低要求接收功率（上行）",
+                    formula=(
+                        "Req_Rx_BS = Sens_BS - G_BS + L_feeder + L_other - G_div "
+                        "+ M_shadow + M_int + L_pen"
+                    ),
+                    substitution=(
+                        f"Req_Rx_BS = ({input_data.base_receiver_sensitivity_dbm:.2f}) - "
+                        f"{input_data.base_antenna_gain_dbi:.2f} + "
+                        f"{input_data.base_feeder_loss_db:.2f} + {input_data.base_other_loss_db:.2f} - "
+                        f"{input_data.base_diversity_gain_db:.2f} + "
+                        f"{link_budget.shadow_fading_margin_db:.2f} + "
+                        f"{input_data.interference_margin_db:.2f} + {input_data.penetration_loss_db:.2f}"
+                    ),
+                    result=f"Req_Rx_BS = {link_budget.required_rx_base_dbm:.2f} dBm",
+                ),
+            ],
+        ),
+        CalculationSection(
+            number=3,
+            title="最大允许路径损耗 (MAPL)",
+            description="系统覆盖由上下行 MAPL 中较小的一方决定。",
+            details=[
+                CalculationDetail(
+                    name="下行链路 MAPL",
+                    formula="MAPL_DL = EIRP_BS - Req_Rx_MS",
+                    substitution=(
+                        f"MAPL_DL = {link_budget.base_eirp_dbm:.2f} - "
+                        f"({link_budget.required_rx_mobile_dbm:.2f})"
+                    ),
+                    result=f"MAPL_DL = {link_budget.downlink_mapl_db:.2f} dB",
+                ),
+                CalculationDetail(
+                    name="上行链路 MAPL",
+                    formula="MAPL_UL = EIRP_MS - Req_Rx_BS",
+                    substitution=(
+                        f"MAPL_UL = {link_budget.mobile_eirp_dbm:.2f} - "
+                        f"({link_budget.required_rx_base_dbm:.2f})"
+                    ),
+                    result=f"MAPL_UL = {link_budget.uplink_mapl_db:.2f} dB",
+                ),
+                CalculationDetail(
+                    name="系统 MAPL",
+                    formula="MAPL = min(MAPL_DL, MAPL_UL)",
+                    substitution=(
+                        f"MAPL = min({link_budget.downlink_mapl_db:.2f}, "
+                        f"{link_budget.uplink_mapl_db:.2f})"
+                    ),
+                    result=(
+                        f"系统 MAPL = {link_budget.max_path_loss_db:.2f} dB，"
+                        f"{link_budget.limiting_link}受限"
+                    ),
+                ),
+            ],
+        ),
+        _build_model_section(input_data, boundary),
+        CalculationSection(
+            number=5,
+            title="覆盖距离求解",
+            description="使用当前传播模型的数值反解，以系统 MAPL 为路径损耗上限。",
+            details=[
+                CalculationDetail(
+                    name="求解目标",
+                    formula="PathLoss(d) = System MAPL",
+                    substitution=(
+                        f"PathLoss(d) = {link_budget.max_path_loss_db:.2f} dB，"
+                        f"二分法迭代 {len(iteration_steps)} 次"
+                    ),
+                    result=f"最大覆盖距离 = {coverage_distance_m:.1f} m",
+                )
+            ],
+        ),
+    ]
+
+
+def _build_model_section(
+    input_data: CalculationInput, boundary: PropagationResult
+) -> CalculationSection:
+    formulas = {
+        "underground": "L = 20log10(f_MHz) + Nlog10(d_m) + L_wall + L_floor - 28",
+        "tunnel": "L = FSPL + α × d_km + K_section + L_bend",
+        "ground": "L = L0 + Lrts + Lmsd",
+        "viaduct": "L = L_COST231-WI + K_viaduct",
+    }
+    values = ", ".join(
+        f"{name}={value:.4f}" for name, value in boundary.intermediate_values.items()
+    )
+    return CalculationSection(
+        number=4,
+        title=f"{boundary.model_name} 传播模型参数与公式",
+        description=f"公式来源：{boundary.formula_source}",
+        details=[
+            CalculationDetail(
+                name="核心公式与中间量",
+                formula=formulas[input_data.scenario_type],
+                substitution=(
+                    f"f={input_data.frequency_mhz:.2f} MHz，d={boundary.distance_m:.1f} m；{values}"
+                ),
+                result=f"Path Loss = {boundary.path_loss_db:.2f} dB",
+            )
+        ],
+    )
 
 
 def _coverage_level(rssi_dbm: float) -> str:

@@ -81,7 +81,9 @@ def export_pdf_report(
     _add_project_info(story, styles, project_info_rows(template, report_data), colors)
     _add_summary(story, styles, report_data["summary"], colors)
     _add_input_table(story, styles, report_data["input"], colors)
-    _add_link_budget(story, styles, report_data["details"]["link_budget"], colors)
+    _add_calculation_sections(
+        story, styles, report_data["details"]["calculation_sections"], colors
+    )
     _add_iteration_summary(story, styles, report_data["details"]["iteration_steps"], colors)
     _add_curve_summary(story, styles, report_data["charts"], template["curve_sample_points"], colors)
     _add_curve_images(story, styles, report_data["charts"])
@@ -133,10 +135,13 @@ def _add_summary(story: list[Any], styles: Any, summary: dict[str, Any], colors:
     rows = [
         ("传播模型", summary["model_name"]),
         ("最大覆盖距离", f"{summary['coverage_distance_m']:.1f} m"),
-        ("覆盖等级", summary["coverage_level"]),
-        ("EIRP", f"{summary['eirp_dbm']:.2f} dBm"),
-        ("最大允许路径损耗", f"{summary['max_path_loss_db']:.2f} dB"),
-        ("覆盖边界 RSSI", f"{summary['boundary_rssi_dbm']:.2f} dBm"),
+        ("受限链路", summary["limiting_link"]),
+        ("基站 EIRP", f"{summary['base_eirp_dbm']:.2f} dBm"),
+        ("手台 EIRP", f"{summary['mobile_eirp_dbm']:.2f} dBm"),
+        ("下行 MAPL", f"{summary['downlink_mapl_db']:.2f} dB"),
+        ("上行 MAPL", f"{summary['uplink_mapl_db']:.2f} dB"),
+        ("系统 MAPL", f"{summary['max_path_loss_db']:.2f} dB"),
+        ("下行边界 RSSI", f"{summary['boundary_rssi_dbm']:.2f} dBm"),
     ]
     story.append(_key_value_table(rows, colors))
 
@@ -153,26 +158,28 @@ def _add_input_table(story: list[Any], styles: Any, input_data: dict[str, Any], 
     story.append(_key_value_table(rows, colors))
 
 
-def _add_link_budget(story: list[Any], styles: Any, link_budget: dict[str, Any], colors: Any) -> None:
-    story.append(_paragraph("链路预算", styles["ChineseHeading"]))
-    story.append(_paragraph(f"EIRP：{link_budget['eirp_dbm']:.2f} dBm", styles["ChineseBody"]))
-    story.append(
-        _paragraph(
-            f"最大允许路径损耗：{link_budget['max_path_loss_db']:.2f} dB",
-            styles["ChineseBody"],
+def _add_calculation_sections(
+    story: list[Any], styles: Any, sections: list[dict[str, Any]], colors: Any
+) -> None:
+    story.append(_paragraph("详细计算过程", styles["ChineseHeading"]))
+    for section in sections:
+        story.append(
+            _paragraph(
+                f"{section['number']} {section['title']}", styles["ChineseHeading"]
+            )
         )
-    )
-    rows = [["步骤", "公式", "代入", "结果"]]
-    for step in link_budget["steps"]:
-        rows.append(
-            [
-                step["name"],
-                step["formula"],
-                step["substitution"],
-                f"{step['result']:.2f} {step['unit']}",
-            ]
-        )
-    story.append(_table(rows, colors, [36, 108, 220, 56]))
+        story.append(_paragraph(section["description"], styles["ChineseBody"]))
+        rows = [["项目", "内容"]]
+        for detail in section["details"]:
+            rows.extend(
+                [
+                    [detail["name"], ""],
+                    ["公式", detail["formula"]],
+                    ["代入", detail["substitution"]],
+                    ["结果", detail["result"]],
+                ]
+            )
+        story.append(_table(rows, colors, [90, 330]))
 
 
 def _add_iteration_summary(

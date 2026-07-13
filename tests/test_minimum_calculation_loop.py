@@ -18,17 +18,24 @@ from rt_tetra_cover_studio.validation import validate_input
 def sample_input() -> CalculationInput:
     return CalculationInput(
         frequency_mhz=400.0,
-        tx_power_dbm=40.0,
-        base_antenna_gain_dbi=5.0,
-        feeder_loss_db=2.0,
-        connector_loss_db=1.0,
+        base_tx_power_w=25.0,
+        mobile_tx_power_w=1.0,
+        base_antenna_gain_dbi=9.0,
+        base_feeder_loss_db=2.0,
+        base_other_loss_db=3.0,
         mobile_antenna_gain_dbi=0.0,
-        receiver_sensitivity_dbm=-112.0,
+        body_loss_db=3.0,
+        mobile_receiver_sensitivity_dbm=-103.0,
+        base_receiver_sensitivity_dbm=-112.0,
+        base_diversity_gain_db=0.0,
+        shadow_fading_std_db=8.0,
+        edge_coverage_probability_pct=95.0,
+        interference_margin_db=2.0,
+        penetration_loss_db=10.0,
         base_height_m=3.0,
         mobile_height_m=1.5,
         scenario_type="underground",
         scenario_params={"distance_power_loss_coefficient": 40.0},
-        engineering_margin_db=8.0,
     )
 
 
@@ -81,13 +88,15 @@ class MinimumCalculationLoopTest(unittest.TestCase):
     def test_link_budget(self) -> None:
         result = calculate_link_budget(sample_input())
 
-        self.assertAlmostEqual(result.eirp_dbm, 42.0)
-        self.assertAlmostEqual(result.max_path_loss_db, 146.0)
-        self.assertEqual(len(result.steps), 2)
+        self.assertAlmostEqual(result.base_eirp_dbm, 47.9794, places=4)
+        self.assertAlmostEqual(result.mobile_eirp_dbm, 27.0)
+        self.assertAlmostEqual(result.max_path_loss_db, 117.8412, places=4)
+        self.assertEqual(result.limiting_link, "上行")
+        self.assertEqual(len(result.steps), 5)
 
     def test_validation_rejects_invalid_loss(self) -> None:
         invalid = CalculationInput(
-            **{**sample_input().__dict__, "feeder_loss_db": -1.0}
+            **{**sample_input().__dict__, "base_feeder_loss_db": -1.0}
         )
 
         self.assertTrue(validate_input(invalid))
@@ -135,8 +144,8 @@ class MinimumCalculationLoopTest(unittest.TestCase):
         result = calculate_coverage(sample_input())
 
         self.assertEqual(result.model_name, "ITU Indoor")
-        self.assertGreater(result.coverage_distance_m, 1000.0)
-        self.assertLess(result.coverage_distance_m, 1300.0)
+        self.assertGreater(result.coverage_distance_m, 200.0)
+        self.assertLess(result.coverage_distance_m, 400.0)
         self.assertLessEqual(
             result.boundary_path_loss_db,
             result.link_budget.max_path_loss_db + 0.05,
