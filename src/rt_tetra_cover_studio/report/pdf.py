@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 import json
 from pathlib import Path
 from typing import Any
@@ -257,9 +258,22 @@ def _key_value_table(rows: list[tuple[str, Any]], colors: Any) -> Any:
 
 
 def _table(rows: list[list[str]], colors: Any, column_widths: list[int]) -> Any:
-    from reportlab.platypus import Table, TableStyle
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph, Table, TableStyle
 
-    table = Table(rows, colWidths=column_widths, repeatRows=1)
+    cell_style = ParagraphStyle(
+        name="TableCell",
+        fontName=FONT_NAME,
+        fontSize=8,
+        leading=10,
+        wordWrap="CJK",
+        splitLongWords=True,
+    )
+    wrapped_rows = [
+        [Paragraph(escape(str(cell)).replace("\n", "<br/>"), cell_style) for cell in row]
+        for row in rows
+    ]
+    table = Table(wrapped_rows, colWidths=column_widths, repeatRows=1)
     table.setStyle(
         TableStyle(
             [

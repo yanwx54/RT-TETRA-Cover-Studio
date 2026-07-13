@@ -17,6 +17,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from PySide6.QtWidgets import QApplication
+from docx import Document
 
 from rt_tetra_cover_studio.ui import main_window as main_window_module
 from rt_tetra_cover_studio.ui.main_window import MainWindow
@@ -118,6 +119,92 @@ class GuiExportTest(unittest.TestCase):
             )
         finally:
             window.close()
+
+    def test_all_standard_examples_calculate_plot_and_export(self) -> None:
+        scenarios = {
+            "underground": ("ITU Indoor", 220.0, 222.0),
+            "tunnel": ("Tunnel Model", 2191.0, 2193.0),
+            "ground": ("Low-Band Calibrated Ground", 1246.0, 1248.0),
+            "viaduct": (
+                "Low-Band Calibrated Ground + Viaduct Calibration",
+                2291.0,
+                2294.0,
+            ),
+        }
+        window = MainWindow()
+        output_dir = PROJECT_DIR / "reports" / "test_outputs" / "release_acceptance"
+        messages: list[tuple[str, str]] = []
+        original_get_save_file_name = main_window_module.QFileDialog.getSaveFileName
+        original_information = main_window_module.QMessageBox.information
+        original_warning = main_window_module.QMessageBox.warning
+        try:
+            main_window_module.QMessageBox.information = _record_message(messages)
+            main_window_module.QMessageBox.warning = _record_message(messages)
+
+            for scenario_type, expected in scenarios.items():
+                with self.subTest(scenario_type=scenario_type):
+                    example_index = window.example_combo.findData(scenario_type)
+                    window.example_combo.setCurrentIndex(example_index)
+                    window._load_selected_example()
+                    window._calculate()
+
+                    report_data = window.current_report_data
+                    self.assertIsNotNone(report_data)
+                    summary = report_data["summary"]
+                    self.assertEqual(summary["model_name"], expected[0])
+                    self.assertGreaterEqual(summary["coverage_distance_m"], expected[1])
+                    self.assertLessEqual(summary["coverage_distance_m"], expected[2])
+                    self.assertEqual(summary["calibration_status"], "unverified")
+                    self.assertEqual(window.result_state_label.text(), "计算完成")
+
+                    path_loss_curve = report_data["charts"]["path_loss_curve"]
+                    rssi_curve = report_data["charts"]["rssi_curve"]
+                    self.assertEqual(len(path_loss_curve), 50)
+                    self.assertEqual(len(rssi_curve), 50)
+                    self.assertTrue(
+                        all(
+                            left["path_loss_db"] < right["path_loss_db"]
+                            for left, right in zip(path_loss_curve, path_loss_curve[1:])
+                        )
+                    )
+                    self.assertTrue(
+                        all(
+                            left["rssi_dbm"] > right["rssi_dbm"]
+                            for left, right in zip(rssi_curve, rssi_curve[1:])
+                        )
+                    )
+                    self.assertEqual(
+                        len(window.path_loss_figure.axes[0].lines[0].get_xdata()), 50
+                    )
+                    self.assertEqual(
+                        len(window.rssi_figure.axes[0].lines[0].get_xdata()), 50
+                    )
+
+                    word_path = output_dir / f"{scenario_type}_report.docx"
+                    pdf_path = output_dir / f"{scenario_type}_report.pdf"
+                    main_window_module.QFileDialog.getSaveFileName = _save_path(word_path)
+                    window._export_report("word")
+                    main_window_module.QFileDialog.getSaveFileName = _save_path(pdf_path)
+                    window._export_report("pdf")
+
+                    document = Document(word_path)
+                    document_text = "\n".join(
+                        paragraph.text for paragraph in document.paragraphs
+                    )
+                    self.assertIn("详细计算过程", document_text)
+                    self.assertIn("覆盖曲线图", document_text)
+                    self.assertGreaterEqual(len(document.inline_shapes), 2)
+
+                    pdf_content = pdf_path.read_bytes()
+                    self.assertEqual(pdf_content[:4], b"%PDF")
+                    self.assertGreaterEqual(pdf_content.count(b"/Subtype /Image"), 2)
+        finally:
+            main_window_module.QFileDialog.getSaveFileName = original_get_save_file_name
+            main_window_module.QMessageBox.information = original_information
+            main_window_module.QMessageBox.warning = original_warning
+            window.close()
+
+        self.assertEqual([message[0] for message in messages], ["导出完成"] * 8)
 
 
 def _save_path(path: Path):
